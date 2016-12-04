@@ -16,8 +16,9 @@
 # limitations under the License.
 #
 
-SVNLOOK="/usr/local/svn-install/current/bin/svnlook"
+#SVNLOOK="/usr/local/svn-install/current/bin/svnlook"
 #SVNLOOK="/usr/local/bin/svnlook"
+SVNLOOK="/usr/bin/svnlook"
 
 HOST="127.0.0.1"
 PORT=2069
