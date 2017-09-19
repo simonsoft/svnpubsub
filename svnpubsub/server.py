@@ -93,7 +93,10 @@ class Notification(object):
     def check_value(self, k):
         return hasattr(self, k) and self.__dict__[k]
 
-    def render(self):
+    def render_json(self):
+        raise NotImplementedError
+
+    def render_sse(self):
         raise NotImplementedError
 
     def render_log(self):
@@ -102,10 +105,16 @@ class Notification(object):
 class Commit(Notification):
     KIND = 'COMMIT'
 
-    def render(self):
+    def render_json(self):
         obj = {'commit': {}}
         obj['commit'].update(self.__dict__)
         return json.dumps(obj)
+
+    def render_sse(self):
+        obj = {}
+        obj.update(self.__dict__)
+        # TODO Define an SSE id in preparation for replay support.
+        return "event: commit\ndata: %s\n" % ( json.dumps(obj) )
 
     def render_log(self):
         try:
@@ -175,12 +184,25 @@ class Client(object):
             self.write_heartbeat()
             reactor.callLater(HEARTBEAT_TIME, self.heartbeat, None)
 
-    def write_data(self, data):
-        self.write(data + "\n\0")
+    def write_notification(self, notification):
+        raise NotImplementedError
 
     """ "Data must not be unicode" is what the interfaces.ITransport says... grr. """
     def write(self, input):
         self.r.write(str(input))
+
+    def write_start(self):
+        raise NotImplementedError
+
+    def write_heartbeat(self):
+        raise NotImplementedError
+
+
+class ClientJson(Client):
+
+    def write_notification(self, notification):
+        data = notification.render_json()
+        self.write(data + "\n\0")
 
     def write_start(self):
         self.r.setHeader('X-SVNPubSub-Version', '1')
@@ -189,6 +211,22 @@ class Client(object):
 
     def write_heartbeat(self):
         self.write(json.dumps({"stillalive": time.time()}) + "\n\0")
+
+
+class ClientSse(Client):
+
+    def write_notification(self, notification):
+        data = notification.render_sse()
+        self.write(data + "\n")
+
+    def write_start(self):
+        self.r.setHeader('X-SVNPubSub-Version', '1')
+        self.r.setHeader('content-type', 'text/event-stream')
+        self.write('event: svnpubsub\ndata: {"version": 1}\n\n')
+
+    def write_heartbeat(self):
+        self.write("event: stillalive\ndata: " + json.dumps({"stillalive": time.time()}) + "\n\n")
+
 
 
 class SvnPubSub(resource.Resource):
@@ -210,7 +248,10 @@ class SvnPubSub(resource.Resource):
 
     def render_GET(self, request):
         log.msg("REQUEST: %s"  % (request.uri))
-        request.setHeader('content-type', 'text/plain')
+        request.setHeader('content-type', 'text/plain') # TODO Remove?
+        accept = request.getHeader('Accept')
+        if accept is not None:
+            log.msg("REQUEST Accept Header: %s" % accept)
 
         repository = None
         type = None
@@ -238,19 +279,21 @@ class SvnPubSub(resource.Resource):
         if repository == '*':
           repository = None
 
-        c = Client(self, request, kind, type, repository)
+        c = None
+        if accept == 'text/event-stream':
+            c = ClientSse(self, request, kind, type, repository)
+        else:
+            c = ClientJson(self, request, kind, type, repository)
         self.clients.append(c)
         c.start()
         return twisted.web.server.NOT_DONE_YET
 
     def notifyAll(self, notification):
-        data = notification.render()
-
         log.msg("%s: %s (%d clients)"
                 % (notification.KIND, notification.render_log(), self.cc()))
         for client in self.clients:
             if client.interested_in(notification):
-                client.write_data(data)
+                client.write_notification(notification)
 
     def render_PUT(self, request):
         request.setHeader('content-type', 'text/plain')
@@ -286,4 +329,3 @@ if __name__ == "__main__":
     # Port 2069 "HTTP Event Port", whatever, sounds good to me
     reactor.listenTCP(2069, svnpubsub_server())
     reactor.run()
-
