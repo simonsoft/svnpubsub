@@ -67,7 +67,14 @@ def do_put(body):
     request.add_header('Content-Type', 'application/json')
     request.get_method = lambda: 'PUT'
     url = opener.open(request)
-
+    
+def do_post_commit_webapp(repo, revision):
+    path = "cms/rest/hook/postcommit"
+    port_webapp = 8080
+    opener = urllib2.build_opener(urllib2.HTTPHandler)
+    request = urllib2.Request("http://%s:%d/%s?repo=%s&rev=%s" %(HOST, port_webapp, path, repo, revision))
+    request.add_header('Content-Type', 'application/json')
+    url = opener.open(request)
 
 def main(repo, revision):
     revision = revision.lstrip('r')
@@ -84,6 +91,7 @@ def main(repo, revision):
     data['changed'].update(svnlook_changed(repo, revision))
     body = json.dumps(data)
     do_put(body)
+    do_post_commit_webapp(repo, revision)
 
 if __name__ == "__main__":
     if len(sys.argv) not in (3, 4):
