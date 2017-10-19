@@ -87,11 +87,13 @@ def do_post_commit_webapp(body):
 def main(repo, revision):
     revision = revision.lstrip('r')
     i = svnlook_info(repo, revision)
+    lastSlashIndex = repo.rindex("/")
     data = {'type': 'svn',
             'format': 1,
             'id': int(revision),
             'changed': {},
             'repository': svnlook_uuid(repo),
+            'repositoryname': repo[lastSlashIndex + 1:],
             'committer': i['author'],
             'log': i['log'],
             'date': i['date'],
