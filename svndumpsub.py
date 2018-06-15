@@ -98,7 +98,7 @@ def check_call(*args, **kwds):
         raise subprocess.CalledProcessError(pipe.returncode, args)
     return pipe.returncode # is EXIT_OK
 
-def dump_co_to_s3(dump_args, pipe_args):
+def dump_cm_to_s3(dump_args, pipe_args):
 
     #TODO: check if pipe is needed
     pipe = subprocess.Popen((dump_args), stdout=subprocess.PIPE)
@@ -192,8 +192,8 @@ class BigDoEverythingClasss(object):
         s3_path = 's3://cms-review-jandersson/dumps/%s-%s.dump' % (commit.repositoryname, commit.id)
         aws_args = [AWS, 's3', 'cp', '-', s3_path]
         
-        #TODO: Maybe we should use check_call or dump_co_to_s3 needs to be improved with error handling.
-        dump_co_to_s3(svn_args, aws_args)
+        #TODO: Maybe we should figure out how to use check_call or dump_cm_to_s3 needs to be improved with error handling.
+        dump_cm_to_s3(svn_args, aws_args)
      
 
 
