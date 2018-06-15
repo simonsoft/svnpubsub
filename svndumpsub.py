@@ -93,6 +93,14 @@ def check_call(*args, **kwds):
         raise subprocess.CalledProcessError(pipe.returncode, args)
     return pipe.returncode # is EXIT_OK
 
+def dump_co_to_s3(dump_args, pipe_args):
+
+    #TODO: check if pipe is needed
+    pipe = subprocess.Popen((dump_args), stdout=subprocess.PIPE)
+    output = subprocess.check_output((pipe_args), stdin=pipe.stdout)
+    #TODO: Should use communicate instead of wait, wait will deadlock the Thread.
+    pipe.wait()
+
 ### note: this runs synchronously. within the current Twisted environment,
 ### it is called from ._get_match() which is run on a thread so it won't
 ### block the Twisted main loop.
