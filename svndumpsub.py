@@ -123,59 +123,13 @@ except (ImportError, AttributeError):
         # This will read the entire directory list to memory.
         return not os.listdir(path)
 
-class WorkingCopy(object):
-    def __init__(self, bdec, path, url):
-        self.path = path
-        self.url = url
-
-        try:
-            self.match, self.uuid = self._get_match(bdec.svnbin, bdec.env)
-            bdec.wc_ready(self)
-        except:
-            logging.exception('problem with working copy: %s', path)
-
-    def update_applies(self, uuid, path):
-        if self.uuid != uuid:
-            return False
-
-        path = str(path)
-        if path == self.match:
-            #print "ua: Simple match"
-            # easy case. woo.
-            return True
-        if len(path) < len(self.match):
-            # path is potentially a parent directory of match?
-            #print "ua: parent check"
-            if self.match[0:len(path)] == path:
-                return True
-        if len(path) > len(self.match):
-            # path is potentially a sub directory of match
-            #print "ua: sub dir check"
-            if path[0:len(self.match)] == self.match:
-                return True
-        return False
-
-    def _get_match(self, svnbin, env):
-        ### quick little hack to auto-checkout missing working copies
-        dotsvn = os.path.join(self.path, ".svn")
-        if not os.path.isdir(dotsvn) or is_emptydir(dotsvn):
-            logging.info("autopopulate %s from %s" % (self.path, self.url))
-            check_call([svnbin, 'co', '-q',
-                        '--force',
-                        '--non-interactive',
-                        '--config-option',
-                        'config:miscellany:use-commit-times=on',
-                        '--', self.url, self.path],
-                       env=env)
-
-        # Fetch the info for matching dirs_changed against this WC
-        info = svn_info(svnbin, env, self.path)
-        root = info['Repository Root']
-        url = info['URL']
-        relpath = url[len(root):]  # also has leading '/'
-        uuid = info['Repository UUID']
-        return str(relpath), uuid
-
+class Commit(object):
+    
+    def __init__(self, bdec):
+        self.loggEverything()
+    
+    def loggEverything(self):
+        logging.info("Watching Commit at %s" % (self))
 
 PRODUCTION_RE_FILTER = re.compile("/websites/production/[^/]+/")
 
