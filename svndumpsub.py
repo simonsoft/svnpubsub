@@ -72,6 +72,11 @@ import daemonize
 import svnpubsub.client
 import svnpubsub.util
 
+HOST = "127.0.0.1"
+PORT = 2069
+AWS = "/home/vagrant/.local/bin/aws"
+SVNADMIN = "/usr/bin/svnadmin"
+
 assert hasattr(subprocess, 'check_call')
 def check_call(*args, **kwds):
     """Wrapper around subprocess.check_call() that logs stderr upon failure,
