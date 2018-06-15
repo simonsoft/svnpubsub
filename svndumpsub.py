@@ -180,24 +180,21 @@ class BigDoEverythingClasss(object):
             return
         logging.info("COMMIT r%d (%d paths) from %s"
                      % (commit.id, len(commit.changed), url))
-
-        paths = map(self._normalize_path, commit.changed)
-        if len(paths):
-            pre = posixpath.commonprefix(paths)
-            if pre == "/websites/":
-                # special case for svnmucc "dynamic content" buildbot commits
-                # just take the first production path to avoid updating all cms working copies
-                for p in paths:
-                    m = PRODUCTION_RE_FILTER.match(p)
-                    if m:
-                        pre = m.group(0)
-                        break
-
-            #print "Common Prefix: %s" % (pre)
-            wcs = [wc for wc in self.watch if wc.update_applies(commit.repository, pre)]
-            logging.info("Updating %d WC for r%d" % (len(wcs), commit.id))
-            for wc in wcs:
-                self.worker.add_work(OP_UPDATE, wc)
+        
+        
+        rev = '-r%s:%s'% (commit.id, commit.id)
+        svn_root = '/srv/cms/svn'
+        path = '%s/%s' % (svn_root, commit.repositoryname)        
+        svn_args = [SVNADMIN, 'dump', '--incremental', '--deltas', path, rev]
+        
+        #TODO: Path should look like:
+        #/v1/Cloudid/reponame/shardX/0000001000/reponame-0000001000.svndump.gz
+        s3_path = 's3://cms-review-jandersson/dumps/%s-%s.dump' % (commit.repositoryname, commit.id)
+        aws_args = [AWS, 's3', 'cp', '-', s3_path]
+        
+        #TODO: Maybe we should use check_call or dump_co_to_s3 needs to be improved with error handling.
+        dump_co_to_s3(svn_args, aws_args)
+     
 
 
 # Start logging warnings if the work backlog reaches this many items
