@@ -116,11 +116,27 @@ def dump_cm_to_s3(dump_args, pipe_args):
     p2.communicate()[0]
     
 
-    #TODO: check if pipe is needed
-    pipe = subprocess.Popen((dump_args), stdout=subprocess.PIPE)
-    output = subprocess.check_output((pipe_args), stdin=pipe.stdout)
-    #TODO: Should use communicate instead of wait, wait will deadlock the Thread.
-    pipe.wait()
+OP_DUMPSINGLE = 'dump_single'
+OP_DUMPMULTI = 'dump_multi'
+#Decides operation to put in stack by checking contents in s3.
+def decide_OP(s3_uri, rev):
+    
+    args = [AWS, 's3', 'ls', s3_uri]
+    
+    pipe = subprocess.Popen((args), stdout=subprocess.PIPE)
+    output, errput = pipe.communicate()
+    
+    if errput is not None:
+        raise subprocess.CalledProcessError(pipe.returncode, args)
+    if output:
+        # Extract all revision numbers from output and convert to int. Needs to be changed when preceeded by zeros
+        find = [int(s) for s in re.findall(r'\-(\d{3})\b', output)]
+        if max(find) + 1 is rev:
+            # current rev is next possible revision in s3. Just dump current one.
+            return OP_DUMPSINGLE, rev
+        else:
+            # Missing dumps. Dump all revs from max(find)
+            return OP_DUMPMULTI, max(find)
 
 ### note: this runs synchronously. within the current Twisted environment,
 ### it is called from ._get_match() which is run on a thread so it won't
