@@ -533,10 +533,6 @@ def main(args):
 
     options, extra = parser.parse_args(args)
 
-    if len(extra) != 1:
-        parser.error('CONFIG_FILE is required')
-    config_file = extra[0]
-
     if options.daemon and not options.logfile:
         parser.error('LOGFILE is required when running as a daemon')
     if options.daemon and not options.pidfile:
@@ -544,10 +540,8 @@ def main(args):
 
     # Process any provided options.
     handle_options(options)
-
-    c = ReloadableConfig(config_file)
-    bdec = BigDoEverythingClasss(c)
-
+    bdec = BigDoEverythingClasss()
+    
     # We manage the logfile ourselves (along with possible rotation). The
     # daemon process can just drop stdout/stderr into /dev/null.
     d = Daemon('/dev/null', os.path.abspath(options.pidfile),
