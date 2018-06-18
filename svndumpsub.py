@@ -109,7 +109,6 @@ def dump_cm_to_s3(dump_args, pipe_args):
     # Zip stout
     p2 = subprocess.Popen((gz_args), stdin=p1.stdout, stdout=subprocess.PIPE)
     p1.stdout.close()
-    # gz_pipe = subprocess.check_output((gz_args), stdin=subprocess.PIPE)
     # Upload zip.stdout to s3
     output = subprocess.check_output((pipe_args), stdin=p2.stdout)
     #TODO: Do we need to close stuff?
