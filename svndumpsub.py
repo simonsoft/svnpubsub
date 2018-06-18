@@ -189,14 +189,34 @@ class BigDoEverythingClasss(object):
         
         #TODO: Path should look like:
         #/v1/Cloudid/reponame/shardX/0000001000/reponame-0000001000.svndump.gz
-        s3_path = 's3://cms-review-jandersson/dumps/%s-%s.dump' % (commit.repositoryname, commit.id)
-        aws_args = [AWS, 's3', 'cp', '-', s3_path]
+        s3_uri = 's3://cms-review-jandersson/dumps/'
+        op, from_rev = decide_OP(s3_uri, commit.id)
         
-        #TODO: Maybe we should figure out how to use check_call or dump_cm_to_s3 needs to be improved with error handling.
-        dump_cm_to_s3(svn_args, aws_args)
-     
-
-
+        svn_root = '/srv/cms/svn'
+        path = '%s/%s' % (svn_root, commit.repositoryname)
+        
+        #TODO this should be moved to stack opertations.
+        if op is OP_DUMPSINGLE:
+            s3_uri_dump_key = '%s%s-%s.dump' % (s3_uri, commit.repositoryname, from_rev)
+            aws_args = [AWS, 's3', 'cp', '-', s3_uri_dump_key]
+            
+            rev = '-r%s:%s'% (commit.id, commit.id)
+            svn_args = [SVNADMIN, 'dump', '--incremental', '--deltas', path, rev]
+            
+            dump_cm_to_s3(svn_args, aws_args)
+        #TODO This should be moved to stack operations
+        if op is OP_DUMPMULTI:
+            while from_rev <= commit.id: 
+                s3_uri_dump_key = '%s%s-%s.dump' % (s3_uri, commit.repositoryname, from_rev)
+                logging.info('s3 key will be: %s' % s3_uri_dump_key)
+                aws_args = [AWS, 's3', 'cp', '-', s3_uri_dump_key]
+                
+                rev = '-r%s:%s'% (from_rev, from_rev)
+                svn_args = [SVNADMIN, 'dump', '--incremental', '--deltas', path, rev]
+                logging.info('Dumping rev: %s in repo %s' % (rev, path))
+                dump_cm_to_s3(svn_args, aws_args)
+                from_rev = from_rev + 1
+                
 # Start logging warnings if the work backlog reaches this many items
 BACKLOG_TOO_HIGH = 20
 OP_BOOT = 'boot'
