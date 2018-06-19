@@ -99,6 +99,7 @@ def check_call(*args, **kwds):
     return pipe.returncode # is EXIT_OK
     
 OP_DUMPSINGLE = 'dump_single'
+OP_VALIDATE = 'dump_validate'
 #TODO: Remove this is refactored and moved to Job, still here for inspiration.
 def decide_OP(job):
     args = [AWS, 's3', 'ls', job.s3_base_path]
