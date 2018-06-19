@@ -168,16 +168,84 @@ except (ImportError, AttributeError):
         # This will read the entire directory list to memory.
         return not os.listdir(path)
 
-class Commit(object):
+class Job(object):
     
-    def __init__(self, bdec):
-        self.loggEverything()
+    def __init__(self, repo, rev):
+        self.repo = repo
+        self.rev = rev
     
-    def loggEverything(self):
-        logging.info("Watching Commit at %s" % (self))
+    def get_key(self, repo, rev):
+        #/v1/Cloudid/reponame/shardX/0000001000/reponame-0000001000.svndump.gz
+        return '%s/%s' % (self._get_s3_base(repo, rev), self.get_name(repo, rev)) 
+        
+    def get_name(self, repo, rev):
+        revStr = str(rev)
+        revStr = revStr.zfill(10)
+        name = repo + '-' + revStr + '.svndump.gz'
+        #reponame-0000001000.svndump.gz
+        return name
+    
+    def _get_s3_base(self, repo, rev):
+        d = rev / 1000;
+        d = str(int(d)) + '000'
+        shard_number = d.zfill(10)
+        
+        #TODO: Should not be hardcoded
+        bucket = 'cms-review-jandersson'
+        version = 'v1'
+        cloudid = 'jandersson'
+        shard_type = 'shard0'
+        return 's3://%s/%s/%s/%s/%s/%s' % (bucket, version, cloudid, repo, shard_type, shard_number) 
+        
+    def _get_svn_dump_args(self, repo, rev):
+        path = '%s/%s' % (SVNROOT, repo)
+        dump_rev = '-r%s:%s' % (rev, rev)
+        #svnadmin dump --incremental --deltas /srv/cms/svn/demo1 -r 237:237
+        return [SVNADMIN, 'dump', '--incremental', '--deltas', path, dump_rev]
+    
+    def _get_aws_cp_args(self, repo, rev):
+        # aws s3 cp - s3://cms-review-jandersson/v1/jandersson/demo1/shard0/0000000000/demo1-0000000363.svndump.gz
+        return [AWS, 's3', 'cp', '-', self.get_key(repo, rev)]
+        
+    #Will recursively check a bucket if (rev - 1) exists until it finds a rev dump. 
+    def validate_rev(self, repo, rev):
+        
+        rev_to_validate = rev - 1
+        print('Rev to validate: %s' % rev_to_validate)
+        key = self.get_key(repo, rev_to_validate)
+        print('s3_key %s' % key)
+        args = [AWS, 's3', 'ls', key]
+        print('Aws S3 validate args: %s' % args)
+        
+        pipe = subprocess.Popen((args), stdout=subprocess.PIPE) # Maybe use s3 api to do this.
+        output, errput = pipe.communicate()
+        
+        if self.get_name(repo, rev_to_validate) in output:
+            print ('key do exist %s' % output)
+            return rev
+        if errput is not None:
+            print('Error output is not None, something went wrong')
+            raise subprocess.CalledProcessError(pipe.returncode, args)
+        if errput is None:
+            print('errput is none, key do not exist: %s' % key)
+            return self.validate_rev(repo, rev_to_validate)
+            
+    def dump_cm_to_s3(self, svn_dump_args, aws_cp_args):
+        
+        gz = '/bin/gzip'
+        gz_args = [gz]
 
-PRODUCTION_RE_FILTER = re.compile("/websites/production/[^/]+/")
-
+        # Svn admin dump
+        p1 = subprocess.Popen((svn_dump_args), stdout=subprocess.PIPE)
+        # Zip stout
+        p2 = subprocess.Popen((gz_args), stdin=p1.stdout, stdout=subprocess.PIPE)
+        p1.stdout.close()
+        # Upload zip.stdout to s3
+        output = subprocess.check_output((aws_cp_args), stdin=p2.stdout)
+        #TODO: Do we need to close stuff?
+        p2.communicate()[0]    
+                
+        
 class BigDoEverythingClasss(object):
     def __init__(self, config):
         self.svnbin = config.get_value('svnbin')
