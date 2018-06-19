@@ -99,23 +99,6 @@ def check_call(*args, **kwds):
         raise subprocess.CalledProcessError(pipe.returncode, args)
     return pipe.returncode # is EXIT_OK
     
-#TODO: Maybe we should figure out how to use check_call or dump_cm_to_s3 needs to be improved with error handling.
-def dump_cm_to_s3(dump_args, pipe_args):
-    
-    gz = '/bin/gzip'
-    gz_args = [gz]
-
-    # Svn admin dump
-    p1 = subprocess.Popen((dump_args), stdout=subprocess.PIPE)
-    # Zip stout
-    p2 = subprocess.Popen((gz_args), stdin=p1.stdout, stdout=subprocess.PIPE)
-    p1.stdout.close()
-    # Upload zip.stdout to s3
-    output = subprocess.check_output((pipe_args), stdin=p2.stdout)
-    #TODO: Do we need to close stuff?
-    p2.communicate()[0]
-    
-
 OP_DUMPSINGLE = 'dump_single'
 #TODO: Remove this is refactored and moved to Job, still here for inspiration.
 def decide_OP(job):
