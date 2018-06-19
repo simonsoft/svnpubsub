@@ -423,7 +423,7 @@ class Daemon(daemonize.Daemon):
         pass
 
     def run(self):
-        logging.info('svnwcsub started, pid=%d', os.getpid())
+        logging.info('svndumpsub started, pid=%d', os.getpid())
 
         # Set the umask in the daemon process. Defaults to 000 for
         # daemonized processes. Foreground processes simply inherit
