@@ -117,27 +117,35 @@ def dump_cm_to_s3(dump_args, pipe_args):
     
 
 OP_DUMPSINGLE = 'dump_single'
-OP_DUMPMULTI = 'dump_multi'
-#Decides operation to put in stack by checking contents in s3.
-def decide_OP(s3_uri, rev):
+#TODO: Remove this is refactored and moved to Job, still here for inspiration.
+def decide_OP(job):
+    args = [AWS, 's3', 'ls', job.s3_base_path]
+    print('decide_OP %s' % args)
     
-    args = [AWS, 's3', 'ls', s3_uri]
-    
-    pipe = subprocess.Popen((args), stdout=subprocess.PIPE)
+    pipe = subprocess.Popen((args), stdout=subprocess.PIPE) # Maybe use s3 api to do this.
     output, errput = pipe.communicate()
     
     if errput is not None:
         raise subprocess.CalledProcessError(pipe.returncode, args)
-    if output:
-        # Extract all revision numbers from output and convert to int. Needs to be changed when preceeded by zeros
-        find = [int(s) for s in re.findall(r'\-(\d{3})\b', output)]
-        if max(find) + 1 is rev:
-            # current rev is next possible revision in s3. Just dump current one.
-            return OP_DUMPSINGLE, rev
+    if errput is None:
+        print('S3 path do not exist will dump from 0 in shard %s' % job.s3_base_path)
+        #The folder does not exist, dump all commits that belong to that shard
+        #TODO: Own Method
+        rev_round_down = int((job.rev - 1) / 1000)
+        if rev_round_down is 0: # int(345 /1000) = 0, int(1345 / 1000) = 1
+            from_rev = rev_round_down * 1000
         else:
-            # Missing dumps. Dump all revs from max(find)
-            return OP_DUMPMULTI, max(find)
+            from_rev = rev_round_down * 1000
 
+        return from_rev
+        
+    if output:
+        print ('output %s' % output)
+        # Extract all revision numbers from output and convert to int. Needs to be changed when preceeded by zeros
+        # One request to s3, check if previous exist.
+        find = [int(s) for s in re.findall(r'\-(\d{10})\b', output)]
+        return max(find)
+    
 ### note: this runs synchronously. within the current Twisted environment,
 ### it is called from ._get_match() which is run on a thread so it won't
 ### block the Twisted main loop.
