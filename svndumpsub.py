@@ -330,6 +330,14 @@ class BackgroundWorker(threading.Thread):
         #TODO: Nothing to clean up, remove?
         # self._cleanup(wc)
 
+        print("Starting job with repo: %s and rev: %s", job.repo, job.rev)
+
+        op ,from_rev = job.validate_rev(job.repo, job.rev)
+        #First job has OP_VALIDATE, new job will be created for it with OP_DUMPSINGLE
+        while from_rev <= job.rev:
+            #All from_rev is validated, when que gets there just dump them.
+            self.add_job(OP_DUMPSINGLE, Job(job.repo, from_rev))
+            from_rev = from_rev + 1
 
 class ReloadableConfig(ConfigParser.SafeConfigParser):
     def __init__(self, fname):
