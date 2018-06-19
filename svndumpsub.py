@@ -247,12 +247,16 @@ class Job(object):
                 
         
 class BigDoEverythingClasss(object):
-    def __init__(self, config):
-        self.svnbin = config.get_value('svnbin')
-        self.env = config.get_env()
-        self.tracking = config.get_track()
-        self.hook = config.get_optional_value('hook')
-        self.streams = config.get_value('streams').split()
+    #removed the config object from __init__.
+    def __init__(self):
+        #TODO: Should home be vagrant? or SVN HOME? Not sure if this is needed.
+        self.env = {'HOME': '/home/vagrant', 'LANG': 'en_US.UTF-8'}
+        self.streams = ["http://%s:%d/commits" %(HOST, PORT)]
+        print('streams %s' % self.streams)
+
+        #TODO: svnadmin path is set hardcoded, might want to handle it an other way.
+        self.hook = None
+        self.svnbin = '/usr/bin/svnadmin';
         self.worker = BackgroundWorker(self.svnbin, self.env, self.hook)
         self.watch = [ ]
 
