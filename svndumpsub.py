@@ -282,6 +282,7 @@ class BigDoEverythingClasss(object):
                      % (commit.id, len(commit.changed), url))
                      
         job = Job(commit.repositoryname, commit.id)
+        #TODO: add to queue
         
                 
 # Start logging warnings if the work backlog reaches this many items
