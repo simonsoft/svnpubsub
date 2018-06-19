@@ -246,7 +246,7 @@ class BigDoEverythingClasss(object):
         # Add it to our watchers, and trigger an svn update.
         logging.info("Watching WC at %s <-> %s" % (wc.path, wc.url))
         self.watch.append(wc)
-        self.worker.add_work(OP_BOOT, wc)
+        self.worker.add_job(OP_BOOT, wc)
 
     def _normalize_path(self, path):
         if path[0] != '/':
@@ -262,7 +262,7 @@ class BigDoEverythingClasss(object):
                      % (commit.id, len(commit.changed), url))
                      
         job = Job(commit.repositoryname, commit.id)
-        #TODO: add to queue
+        self.worker.add_job(OP_VALIDATE, job)
         
                 
 # Start logging warnings if the work backlog reaches this many items
@@ -289,7 +289,7 @@ class BackgroundWorker(threading.Thread):
     def run(self):
         while True:
             # This will block until something arrives
-            operation, wc = self.q.get()
+            operation, job = self.q.get()
 
             # Warn if the queue is too long.
             # (Note: the other thread might have added entries to self.q
@@ -299,12 +299,12 @@ class BackgroundWorker(threading.Thread):
                 logging.warn('worker backlog is at %d', qsize)
 
             try:
-                if operation == OP_UPDATE:
-                    self._update(wc)
-                elif operation == OP_BOOT:
-                    self._update(wc, boot=True)
-                elif operation == OP_CLEANUP:
-                    self._cleanup(wc)
+                if operation == OP_VALIDATE:
+                    self._update(job)
+                elif operation == OP_DUMPSINGLE:
+                    print('dumping and uploading %s' % job.rev)
+                    #TODO: all created jobs should have a accurate self.repo, self.job. dump_cm_to_s3 might not need to take any args
+                    job.dump_cm_to_s3(job._get_svn_dump_args(job.repo, job.rev), job._get_aws_cp_args(job.repo, job.rev))
                 else:
                     logging.critical('unknown operation: %s', operation)
             except:
@@ -313,17 +313,17 @@ class BackgroundWorker(threading.Thread):
             # In case we ever want to .join() against the work queue
             self.q.task_done()
 
-    def add_work(self, operation, wc):
+    def add_job(self, operation, job):
         # Start the thread when work first arrives. Thread-start needs to
         # be delayed in case the process forks itself to become a daemon.
         if not self.has_started:
             self.start()
             self.has_started = True
 
-        self.q.put((operation, wc))
+        self.q.put((operation, job))
 
-    def _update(self, wc, boot=False):
-        "Update the specified working copy."
+    def _update(self, job, boot=False):
+        "Validate the specific commit."
 
         # For giggles, let's clean up the working copy in case something
         # happened earlier.
