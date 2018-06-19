@@ -127,19 +127,6 @@ def decide_OP(job):
         # One request to s3, check if previous exist.
         find = [int(s) for s in re.findall(r'\-(\d{10})\b', output)]
         return max(find)
-    
-### note: this runs synchronously. within the current Twisted environment,
-### it is called from ._get_match() which is run on a thread so it won't
-### block the Twisted main loop.
-def svn_info(svnbin, env, path):
-    "Run 'svn info' on the target path, returning a dict of info data."
-    args = [svnbin, "info", "--non-interactive", "--", path]
-    output = svnpubsub.util.check_output(args, env=env).strip()
-    info = { }
-    for line in output.split('\n'):
-        idx = line.index(':')
-        info[line[:idx]] = line[idx+1:].strip()
-    return info
 
 try:
     import glob
