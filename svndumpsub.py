@@ -76,6 +76,7 @@ HOST = "127.0.0.1"
 PORT = 2069
 AWS = "/home/vagrant/.local/bin/aws"
 SVNADMIN = "/usr/bin/svnadmin"
+SVNROOT = '/srv/cms/svn'
 
 assert hasattr(subprocess, 'check_call')
 def check_call(*args, **kwds):
