@@ -339,65 +339,8 @@ class BackgroundWorker(threading.Thread):
 
         # For giggles, let's clean up the working copy in case something
         # happened earlier.
-        self._cleanup(wc)
-
-        logging.info("updating: %s", wc.path)
-
-        ## Run the hook
-        HEAD = svn_info(self.svnbin, self.env, wc.url)['Revision']
-        if self.hook:
-            hook_mode = ['pre-update', 'pre-boot'][boot]
-            logging.info('running hook: %s at %s',
-                         wc.path, hook_mode)
-            args = [self.hook, hook_mode, wc.path, HEAD, wc.url]
-            rc = check_call(args, env=self.env, __okayexits=[0, 1])
-            if rc == 1:
-                # TODO: log stderr
-                logging.warn('hook denied update of %s at %s',
-                             wc.path, hook_mode)
-                return
-            del rc
-
-        ### we need to move some of these args into the config. these are
-        ### still specific to the ASF setup.
-        args = [self.svnbin, 'switch',
-                '--quiet',
-                '--non-interactive',
-                '--trust-server-cert',
-                '--ignore-externals',
-                '--config-option',
-                'config:miscellany:use-commit-times=on',
-                '--',
-                wc.url + '@' + HEAD,
-                wc.path]
-        check_call(args, env=self.env)
-
-        ### check the loglevel before running 'svn info'?
-        info = svn_info(self.svnbin, self.env, wc.path)
-        assert info['Revision'] == HEAD
-        logging.info("updated: %s now at r%s", wc.path, info['Revision'])
-
-        ## Run the hook
-        if self.hook:
-            hook_mode = ['post-update', 'boot'][boot]
-            logging.info('running hook: %s at revision %s due to %s',
-                         wc.path, info['Revision'], hook_mode)
-            args = [self.hook, hook_mode,
-                    wc.path, info['Revision'], wc.url]
-            check_call(args, env=self.env)
-
-    def _cleanup(self, wc):
-        "Run a cleanup on the specified working copy."
-
-        ### we need to move some of these args into the config. these are
-        ### still specific to the ASF setup.
-        args = [self.svnbin, 'cleanup',
-                '--non-interactive',
-                '--trust-server-cert',
-                '--config-option',
-                'config:miscellany:use-commit-times=on',
-                wc.path]
-        check_call(args, env=self.env)
+        #TODO: Nothing to clean up, remove?
+        # self._cleanup(wc)
 
 
 class ReloadableConfig(ConfigParser.SafeConfigParser):
