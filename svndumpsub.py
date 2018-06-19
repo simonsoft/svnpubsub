@@ -208,18 +208,17 @@ class Job(object):
             print('errput is none, key do not exist: %s' % key)
             return self.validate_rev(repo, rev_to_validate)
             
-    def dump_cm_to_s3(self, svn_dump_args, aws_cp_args):
-        
+    def dump_cm_to_s3(self):
         gz = '/bin/gzip'
         gz_args = [gz]
 
         # Svn admin dump
-        p1 = subprocess.Popen((svn_dump_args), stdout=subprocess.PIPE)
+        p1 = subprocess.Popen((self._get_svn_dump_args(self.repo, self.rev)), stdout=subprocess.PIPE)
         # Zip stout
         p2 = subprocess.Popen((gz_args), stdin=p1.stdout, stdout=subprocess.PIPE)
         p1.stdout.close()
         # Upload zip.stdout to s3
-        output = subprocess.check_output((aws_cp_args), stdin=p2.stdout)
+        output = subprocess.check_output((self._get_aws_cp_args(self.repo, self.rev)), stdin=p2.stdout)
         #TODO: Do we need to close stuff?
         p2.communicate()[0]    
                 
@@ -304,7 +303,7 @@ class BackgroundWorker(threading.Thread):
                 elif operation == OP_DUMPSINGLE:
                     print('dumping and uploading %s' % job.rev)
                     #TODO: all created jobs should have a accurate self.repo, self.job. dump_cm_to_s3 might not need to take any args
-                    job.dump_cm_to_s3(job._get_svn_dump_args(job.repo, job.rev), job._get_aws_cp_args(job.repo, job.rev))
+                    job.dump_cm_to_s3()
                 else:
                     logging.critical('unknown operation: %s', operation)
             except:
