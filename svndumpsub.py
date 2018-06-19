@@ -93,7 +93,6 @@ def check_call(*args, **kwds):
     output, errput = pipe.communicate()
     if pipe.returncode not in __okayexits:
         cmd = args[0] if len(args) else kwds.get('args', '(no command)')
-        # TODO: log stdout too?
         logging.error('Command failed: returncode=%d command=%r stderr=%r',
                       pipe.returncode, cmd, errput)
         raise subprocess.CalledProcessError(pipe.returncode, args)
