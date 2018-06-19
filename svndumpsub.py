@@ -323,16 +323,10 @@ class BackgroundWorker(threading.Thread):
         self.q.put((operation, job))
 
     def _update(self, job, boot=False):
-        "Validate the specific commit."
-
-        # For giggles, let's clean up the working copy in case something
-        # happened earlier.
-        #TODO: Nothing to clean up, remove?
-        # self._cleanup(wc)
-
+        "Validate the specific job."
         print("Starting job with repo: %s and rev: %s", job.repo, job.rev)
 
-        op ,from_rev = job.validate_rev(job.repo, job.rev)
+        from_rev = job.validate_rev(job.repo, job.rev)
         #First job has OP_VALIDATE, new job will be created for it with OP_DUMPSINGLE
         while from_rev <= job.rev:
             #All from_rev is validated, when que gets there just dump them.
