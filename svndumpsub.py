@@ -257,9 +257,7 @@ class BigDoEverythingClasss(object):
         self.watch = [ ]
 
     def start(self):
-        for path, url in self.tracking.items():
-            # working copies auto-register with the BDEC when they are ready.
-            WorkingCopy(self, path, url)
+        print('start')
 
     def wc_ready(self, wc):
         # called when a working copy object has its basic info/url,
