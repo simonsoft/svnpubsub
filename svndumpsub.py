@@ -273,7 +273,7 @@ class BigDoEverythingClasss(object):
                      % (commit.id, len(commit.changed), url))
                      
         job = Job(commit.repositoryname, commit.id)
-        self.worker.add_job(OP_VALIDATE, job)
+        self.worker.add_job(job)
         
                 
 # Start logging warnings if the work backlog reaches this many items
@@ -293,53 +293,47 @@ class BackgroundWorker(threading.Thread):
         self.svnbin = svnbin
         self.env = env
         self.hook = hook
-        self.q = Queue.Queue()
+        self.q = Queue.PriorityQueue()
 
         self.has_started = False
 
     def run(self):
         while True:
             # This will block until something arrives
-            operation, job = self.q.get()
+            tuple = self.q.get()
+            job = tuple[1]
+            # print('revtype: %s' % type(rev))
+            print('jobtype: %s' % type(job))
 
             # Warn if the queue is too long.
             # (Note: the other thread might have added entries to self.q
             # after the .get() and before the .qsize().)
             qsize = self.q.qsize()+1
-            if operation != OP_BOOT and qsize > BACKLOG_TOO_HIGH:
+            if qsize > BACKLOG_TOO_HIGH:
                 logging.warn('worker backlog is at %d', qsize)
-
+            
             try:
-                if operation == OP_VALIDATE:
-                    self._update(job)
-                elif operation == OP_DUMPSINGLE:
-                    job.dump_cm_to_s3()
-                else:
-                    logging.critical('unknown operation: %s', operation)
+                self._validate(job)
+                job.dump_cm_to_s3()
+                self.q.task_done()
             except:
-                logging.exception('exception in worker')
+                logging.exception('Exception in worker')
 
-            # In case we ever want to .join() against the work queue
-            self.q.task_done()
-
-    def add_job(self, operation, job):
+    def add_job(self, job):
         # Start the thread when work first arrives. Thread-start needs to
         # be delayed in case the process forks itself to become a daemon.
         if not self.has_started:
             self.start()
             self.has_started = True
 
-        self.q.put((operation, job))
+        self.q.put((job.rev, job))
 
-    def _update(self, job, boot=False):
+    def _validate(self, job, boot=False):
         "Validate the specific job."
         logging.info("Starting validation of rev: %s in repo: %s" % (job.rev, job.repo))
         from_rev = job.validate_rev(job.repo, job.rev)
-        #First job has OP_VALIDATE, new job will be created for it with OP_DUMPSINGLE
-        while from_rev <= job.rev:
-            #All from_rev is validated, when que gets there just dump them.
-            self.add_job(OP_DUMPSINGLE, Job(job.repo, from_rev))
-            from_rev = from_rev + 1
+        if from_rev > 0:
+            self.add_job(Job(job.repo, from_rev))
 
 class ReloadableConfig(ConfigParser.SafeConfigParser):
     def __init__(self, fname):
