@@ -98,34 +98,6 @@ def check_call(*args, **kwds):
         raise subprocess.CalledProcessError(pipe.returncode, args)
     return pipe.returncode # is EXIT_OK
     
-OP_DUMPSINGLE = 'dump_single'
-OP_VALIDATE = 'dump_validate'
-#TODO: Remove this is refactored and moved to Job, still here for inspiration.
-def decide_OP(job):
-    args = [AWS, 's3', 'ls', job.s3_base_path]
-    
-    pipe = subprocess.Popen((args), stdout=subprocess.PIPE) # Maybe use s3 api to do this.
-    output, errput = pipe.communicate()
-    
-    if errput is not None:
-        raise subprocess.CalledProcessError(pipe.returncode, args)
-    if errput is None:
-        #The folder does not exist, dump all commits that belong to that shard
-        #TODO: Own Method
-        rev_round_down = int((job.rev - 1) / 1000)
-        if rev_round_down is 0: # int(345 /1000) = 0, int(1345 / 1000) = 1
-            from_rev = rev_round_down * 1000
-        else:
-            from_rev = rev_round_down * 1000
-
-        return from_rev
-        
-    if output:
-        # Extract all revision numbers from output and convert to int. Needs to be changed when preceeded by zeros
-        # One request to s3, check if previous exist.
-        find = [int(s) for s in re.findall(r'\-(\d{10})\b', output)]
-        return max(find)
-
 try:
     import glob
     glob.iglob
