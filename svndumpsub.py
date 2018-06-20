@@ -190,24 +190,25 @@ class Job(object):
     def validate_rev(self, repo, rev):
         
         rev_to_validate = rev - 1
-        print('Rev to validate: %s' % rev_to_validate)
+        
+        if rev_to_validate is 0:
+            return rev_to_validate
+        
         key = self.get_key(rev_to_validate)
-        print('s3_key %s' % key)
         args = [AWS, 's3', 'ls', key]
-        print('Aws S3 validate args: %s' % args)
         
         #TODO: We use s3 ls to validate existens of s3 keys. How to handle the exceptions when communicating with s3 fails? s3 cli?
         pipe = subprocess.Popen((args), stdout=subprocess.PIPE) # Maybe use s3 api to do this.
         output, errput = pipe.communicate()
         
         if self.get_name(rev_to_validate) in output:
-            print ('key do exist %s' % output)
+            logging.info('Key do exists %s will dump from %s' % (key, rev_to_validate))
             return rev
         if errput is not None:
-            print('Error output is not None, something went wrong')
+            logging.error('Exception when trying to validate existence of S3 key %s' % key)
             raise subprocess.CalledProcessError(pipe.returncode, args)
         if errput is None:
-            print('errput is none, key do not exist: %s' % key)
+            logging.info('S3 Key do not exist %s' % key)
             return self.validate_rev(repo, rev_to_validate)
             
     def dump_cm_to_s3(self):
