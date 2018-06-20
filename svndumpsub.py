@@ -51,6 +51,7 @@ import stat
 import os
 import re
 import posixpath
+import json
 try:
   import ConfigParser
 except ImportError:
@@ -270,8 +271,6 @@ class BackgroundWorker(threading.Thread):
             # This will block until something arrives
             tuple = self.q.get()
             job = tuple[1]
-            # print('revtype: %s' % type(rev))
-            print('jobtype: %s' % type(job))
 
             # Warn if the queue is too long.
             # (Note: the other thread might have added entries to self.q
@@ -305,9 +304,7 @@ class BackgroundWorker(threading.Thread):
     def _validate(self, job, boot=False):
         "Validate the specific job."
         logging.info("Starting validation of rev: %s in repo: %s" % (job.rev, job.repo))
-        from_rev = job.validate_rev(job.repo, job.rev)
-        if from_rev > 0:
-            self.add_job(Job(job.repo, from_rev))
+        return job.validate_rev(job.repo, job.rev)
 
 class ReloadableConfig(ConfigParser.SafeConfigParser):
     def __init__(self, fname):
