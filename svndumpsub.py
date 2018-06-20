@@ -148,8 +148,8 @@ class Job(object):
         version = 'v1'
         cloudid = 'jandersson'
         shard_type = 'shard0'
-        # s3://cms-review-jandersson/v1/jandersson/demo1/shard0/0000000000
-        return 's3://%s/%s/%s/%s/%s/%s' % (bucket, version, cloudid, self.repo, shard_type, shard_number) 
+        # v1/jandersson/demo1/shard0/0000000000
+        return '%s/%s/%s/%s/%s' % (version, cloudid, self.repo, shard_type, shard_number) 
         
     def _get_svn_dump_args(self):
         path = '%s/%s' % (SVNROOT, self.repo)
