@@ -189,6 +189,10 @@ class Job(object):
         validate_to_rev = self._get_validate_to_rev()
         rev_to_validate = rev - 1
         
+        if rev_to_validate < 0:
+            logging.info('Validation in this shard is completed.')
+            return
+        
         if rev_to_validate < validate_to_rev:
             logging.info('Will not validate below even 1000.')
             return validate_to_rev
