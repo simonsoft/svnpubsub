@@ -117,9 +117,11 @@ except (ImportError, AttributeError):
 
 class Job(object):
     
-    def __init__(self, repo, rev):
+    def __init__(self, repo, rev, head):
         self.repo = repo
         self.rev = rev
+        self.head = head
+        self.env = {'LANG': 'en_US.UTF-8', 'LC_ALL': 'en_US.UTF-8'}
     
     def get_key(self, rev):
         #/v1/Cloudid/reponame/shardX/0000001000/reponame-0000001000.svndump.gz
