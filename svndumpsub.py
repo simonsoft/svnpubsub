@@ -103,7 +103,6 @@ OP_VALIDATE = 'dump_validate'
 #TODO: Remove this is refactored and moved to Job, still here for inspiration.
 def decide_OP(job):
     args = [AWS, 's3', 'ls', job.s3_base_path]
-    print('decide_OP %s' % args)
     
     pipe = subprocess.Popen((args), stdout=subprocess.PIPE) # Maybe use s3 api to do this.
     output, errput = pipe.communicate()
@@ -111,7 +110,6 @@ def decide_OP(job):
     if errput is not None:
         raise subprocess.CalledProcessError(pipe.returncode, args)
     if errput is None:
-        print('S3 path do not exist will dump from 0 in shard %s' % job.s3_base_path)
         #The folder does not exist, dump all commits that belong to that shard
         #TODO: Own Method
         rev_round_down = int((job.rev - 1) / 1000)
@@ -123,7 +121,6 @@ def decide_OP(job):
         return from_rev
         
     if output:
-        print ('output %s' % output)
         # Extract all revision numbers from output and convert to int. Needs to be changed when preceeded by zeros
         # One request to s3, check if previous exist.
         find = [int(s) for s in re.findall(r'\-(\d{10})\b', output)]
@@ -212,6 +209,8 @@ class Job(object):
             return self.validate_rev(repo, rev_to_validate)
             
     def dump_cm_to_s3(self):
+        logging.info('Dumping and uploading rev: %s from repo: %s' % (self.rev, self.repo))
+        
         gz = '/bin/gzip'
         gz_args = [gz]
 
@@ -232,7 +231,6 @@ class BigDoEverythingClasss(object):
         #TODO: Should home be vagrant? or SVN HOME? Not sure if this is needed.
         self.env = {'HOME': '/home/vagrant', 'LANG': 'en_US.UTF-8'}
         self.streams = ["http://%s:%d/commits" %(HOST, PORT)]
-        print('streams %s' % self.streams)
 
         #TODO: svnadmin path is set hardcoded, might want to handle it an other way.
         self.hook = None
@@ -241,7 +239,7 @@ class BigDoEverythingClasss(object):
         self.watch = [ ]
 
     def start(self):
-        print('start')
+        logging.info('start')
 
     def wc_ready(self, wc):
         # called when a working copy object has its basic info/url,
@@ -304,8 +302,6 @@ class BackgroundWorker(threading.Thread):
                 if operation == OP_VALIDATE:
                     self._update(job)
                 elif operation == OP_DUMPSINGLE:
-                    print('dumping and uploading %s' % job.rev)
-                    #TODO: all created jobs should have a accurate self.repo, self.job. dump_cm_to_s3 might not need to take any args
                     job.dump_cm_to_s3()
                 else:
                     logging.critical('unknown operation: %s', operation)
@@ -326,8 +322,7 @@ class BackgroundWorker(threading.Thread):
 
     def _update(self, job, boot=False):
         "Validate the specific job."
-        print("Starting job with repo: %s and rev: %s", job.repo, job.rev)
-
+        logging.info("Starting validation of rev: %s in repo: %s" % (job.rev, job.repo))
         from_rev = job.validate_rev(job.repo, job.rev)
         #First job has OP_VALIDATE, new job will be created for it with OP_DUMPSINGLE
         while from_rev <= job.rev:
