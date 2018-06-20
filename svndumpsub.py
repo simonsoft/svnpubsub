@@ -167,31 +167,28 @@ class Job(object):
         validate_to_rev = self._get_validate_to_rev()
         rev_to_validate = rev - 1
         
-        if rev_to_validate < 0:
-            logging.info('Validation in this shard is completed.')
-            return
-        
         if rev_to_validate < validate_to_rev:
-            logging.info('Will not validate below even 1000.')
-            return validate_to_rev
+            logging.info('At first possible rev in shard, will not validate further rev: %s', rev_to_validate)
+            return True
         
         key = self.get_key(rev_to_validate)
-        args = [AWS, 's3', 'ls', key] # Maybe use s3 cli or s3 api to do this.
+        args = [AWS, 's3api', 'head-object', '--bucket', self._get_bucket_name(), '--key', key] # Maybe use s3 cli or s3 api to do this.
         
-        #TODO: We use s3 ls to validate existens of s3 keys. How to handle the exceptions when communicating with s3 fails? s3 cli?
-        # Should check returned code from pipe. e.g. pipe.returncode
         pipe = subprocess.Popen((args), stdout=subprocess.PIPE) 
         output, errput = pipe.communicate()
         
-        if self.get_name(rev_to_validate) in output:
-            logging.info('Key do exists %s will dump from %s' % (key, rev))
-            return
-        if errput is not None:
-            logging.error('Exception when trying to validate existence of S3 key %s' % key)
-            raise subprocess.CalledProcessError(pipe.returncode, args)
-        if errput is None:
+        if pipe.returncode != 0:
             logging.info('S3 Key do not exist %s' % key)
-            return rev_to_validate
+            return False
+        else:
+            try:
+                #FUTURE: Parsing response to json. Will allow us to check size. e.g response_body['ContentLength']
+                response_body = json.loads(output)
+                logging.info('Previous key do exists %s will dump from %s' % (key, rev))
+                return True
+            except ValueError:
+                logging.error('Could not parse response from s3api head-object with key: %s' % key)
+                raise 'Could not parse response from s3api head-object with key: %s' % key
             
     def _get_validate_to_rev(self):
         rev_round_down = int((self.head - 1) / 1000)
@@ -204,7 +201,7 @@ class Job(object):
         gz_args = [gz]
 
         # Svn admin dump
-        p1 = subprocess.Popen((self._get_svn_dump_args()), stdout=subprocess.PIPE)
+        p1 = subprocess.Popen((self._get_svn_dump_args()), stdout=subprocess.PIPE, env=self.env)
         # Zip stout
         p2 = subprocess.Popen((gz_args), stdin=p1.stdout, stdout=subprocess.PIPE)
         p1.stdout.close()
@@ -218,7 +215,7 @@ class BigDoEverythingClasss(object):
     #removed the config object from __init__.
     def __init__(self):
         #TODO: Should home be vagrant? or SVN HOME? Not sure if this is needed.
-        self.env = {'HOME': '/home/vagrant', 'LANG': 'en_US.UTF-8'}
+        self.env = {'LANG': 'en_US.UTF-8', 'LC_ALL': 'en_US.UTF-8', 'LC_CTYPE': 'en_US.UTF-8'}
         self.streams = ["http://%s:%d/commits" %(HOST, PORT)]
 
         #TODO: svnadmin path is set hardcoded, might want to handle it an other way.
@@ -284,8 +281,14 @@ class BackgroundWorker(threading.Thread):
                 logging.warn('worker backlog is at %d', qsize)
             
             try:
-                self._validate(job)
-                job.dump_cm_to_s3()
+                prev_exists = self._validate(job)
+                if prev_exists:
+                    job.dump_cm_to_s3()
+                else:
+                    logging.info('Rev - 1 has not been dumped, adding it to the queue')
+                    self.add_job(job)
+                    self.add_job(Job(job.repo, job.rev - 1, job.head))
+                    
                 self.q.task_done()
             except:
                 logging.exception('Exception in worker')
