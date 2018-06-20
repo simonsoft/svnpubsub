@@ -252,13 +252,6 @@ class BigDoEverythingClasss(object):
     def start(self):
         logging.info('start')
 
-    def wc_ready(self, wc):
-        # called when a working copy object has its basic info/url,
-        # Add it to our watchers, and trigger an svn update.
-        logging.info("Watching WC at %s <-> %s" % (wc.path, wc.url))
-        self.watch.append(wc)
-        self.worker.add_job(OP_BOOT, wc)
-
     def _normalize_path(self, path):
         if path[0] != '/':
             return "/" + path
