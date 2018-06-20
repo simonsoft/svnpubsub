@@ -194,7 +194,7 @@ class Job(object):
             return rev_to_validate
             
     def _get_validate_to_rev(self):
-        rev_round_down = int((self.rev - 1) / 1000)
+        rev_round_down = int((self.head - 1) / 1000)
         return rev_round_down * 1000
             
     def dump_cm_to_s3(self):
@@ -243,7 +243,7 @@ class BigDoEverythingClasss(object):
         logging.info("COMMIT r%d (%d paths) from %s"
                      % (commit.id, len(commit.changed), url))
                      
-        job = Job(commit.repositoryname, commit.id)
+        job = Job(commit.repositoryname, commit.id, commit.id)
         self.worker.add_job(job)
         
                 
