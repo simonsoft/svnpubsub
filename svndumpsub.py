@@ -133,6 +133,10 @@ class Job(object):
         name = self.repo + '-' + revStr + '.svndump.gz'
         #reponame-0000001000.svndump.gz
         return name
+        
+    def _get_bucket_name(self):
+        #TODO: Should not be hardcoded
+        return 'cms-review-jandersson'  
     
     def _get_s3_base(self):
         d = self.rev / 1000;
@@ -140,7 +144,7 @@ class Job(object):
         shard_number = d.zfill(10)
         
         #TODO: Should not be hardcoded
-        bucket = 'cms-review-jandersson'
+        bucket = self._get_bucket_name()
         version = 'v1'
         cloudid = 'jandersson'
         shard_type = 'shard0'
@@ -155,7 +159,7 @@ class Job(object):
     
     def _get_aws_cp_args(self):
         # aws s3 cp - s3://cms-review-jandersson/v1/jandersson/demo1/shard0/0000000000/demo1-0000000363.svndump.gz
-        return [AWS, 's3', 'cp', '-', self.get_key(self.rev)]
+        return [AWS, 's3', 'cp', '-',  's3://%s/%s' % (self._get_bucket_name() ,self.get_key(self.rev))]
         
     #Will recursively check a bucket if (rev - 1) exists until it finds a rev dump. 
     def validate_rev(self, repo, rev):
