@@ -196,6 +196,7 @@ class Job(object):
         args = [AWS, 's3', 'ls', key]
         print('Aws S3 validate args: %s' % args)
         
+        #TODO: We use s3 ls to validate existens of s3 keys. How to handle the exceptions when communicating with s3 fails? s3 cli?
         pipe = subprocess.Popen((args), stdout=subprocess.PIPE) # Maybe use s3 api to do this.
         output, errput = pipe.communicate()
         
