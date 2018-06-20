@@ -186,16 +186,19 @@ class Job(object):
     #Will recursively check a bucket if (rev - 1) exists until it finds a rev dump. 
     def validate_rev(self, repo, rev):
         
+        validate_to_rev = self._get_validate_to_rev()
         rev_to_validate = rev - 1
         
-        if rev_to_validate is 0:
-            return rev_to_validate
+        if rev_to_validate < validate_to_rev:
+            logging.info('Will not validate below even 1000.')
+            return validate_to_rev
         
         key = self.get_key(rev_to_validate)
-        args = [AWS, 's3', 'ls', key]
+        args = [AWS, 's3', 'ls', key] # Maybe use s3 cli or s3 api to do this.
         
         #TODO: We use s3 ls to validate existens of s3 keys. How to handle the exceptions when communicating with s3 fails? s3 cli?
-        pipe = subprocess.Popen((args), stdout=subprocess.PIPE) # Maybe use s3 api to do this.
+        # Should check returned code from pipe. e.g. pipe.returncode
+        pipe = subprocess.Popen((args), stdout=subprocess.PIPE) 
         output, errput = pipe.communicate()
         
         if self.get_name(rev_to_validate) in output:
@@ -207,6 +210,10 @@ class Job(object):
         if errput is None:
             logging.info('S3 Key do not exist %s' % key)
             return self.validate_rev(repo, rev_to_validate)
+            
+    def _get_validate_to_rev(self):
+        rev_round_down = int((self.rev - 1) / 1000)
+        return rev_round_down * 1000
             
     def dump_cm_to_s3(self):
         logging.info('Dumping and uploading rev: %s from repo: %s' % (self.rev, self.repo))
