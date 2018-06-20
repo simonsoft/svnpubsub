@@ -206,14 +206,14 @@ class Job(object):
         output, errput = pipe.communicate()
         
         if self.get_name(rev_to_validate) in output:
-            logging.info('Key do exists %s will dump from %s' % (key, rev_to_validate))
-            return rev
+            logging.info('Key do exists %s will dump from %s' % (key, rev))
+            return
         if errput is not None:
             logging.error('Exception when trying to validate existence of S3 key %s' % key)
             raise subprocess.CalledProcessError(pipe.returncode, args)
         if errput is None:
             logging.info('S3 Key do not exist %s' % key)
-            return self.validate_rev(repo, rev_to_validate)
+            return rev_to_validate
             
     def _get_validate_to_rev(self):
         rev_round_down = int((self.rev - 1) / 1000)
