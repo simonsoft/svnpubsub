@@ -194,11 +194,6 @@ class BigDoEverythingClasss(object):
     def start(self):
         logging.info('start')
 
-    def _normalize_path(self, path):
-        if path[0] != '/':
-            return "/" + path
-        return posixpath.abspath(path)
-
     def commit(self, url, commit):
         if commit.type != 'svn' or commit.format != 1:
             logging.info("SKIP unknown commit format (%s.%d)",
