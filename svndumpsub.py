@@ -26,32 +26,20 @@
 # On startup SvnDumpSub starts listening to commits in all repositories.
 #
 
-import errno
 import subprocess
 import threading
 import sys
 import stat
 import os
 import re
-import posixpath
 import json
-try:
-  import ConfigParser
-except ImportError:
-  import configparser as ConfigParser
-import time
 import logging.handlers
 try:
   import Queue
 except ImportError:
   import queue as Queue
+  
 import optparse
-import functools
-try:
-  import urlparse
-except ImportError:
-  import urllib.parse as urlparse
-
 import daemonize
 import svnpubsub.client
 import svnpubsub.util
