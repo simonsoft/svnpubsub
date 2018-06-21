@@ -80,24 +80,7 @@ def check_call(*args, **kwds):
         logging.error('Command failed: returncode=%d command=%r stderr=%r',
                       pipe.returncode, cmd, errput)
         raise subprocess.CalledProcessError(pipe.returncode, args)
-    return pipe.returncode # is EXIT_OK
-    
-try:
-    import glob
-    glob.iglob
-    def is_emptydir(path):
-        # ### If the directory contains only dotfile children, this will readdir()
-        # ### the entire directory.  But os.readdir() is not exposed to us...
-        for x in glob.iglob('%s/*' % path):
-            return False
-        for x in glob.iglob('%s/.*' % path):
-            return False
-        return True
-except (ImportError, AttributeError):
-    # Python ≤2.4
-    def is_emptydir(path):
-        # This will read the entire directory list to memory.
-        return not os.listdir(path)
+    return pipe.returncode # is EXIT_OK   
 
 class Job(object):
     
