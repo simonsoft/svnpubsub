@@ -185,7 +185,6 @@ class BigDoEverythingClasss(object):
         self.env = {'LANG': 'en_US.UTF-8', 'LC_ALL': 'en_US.UTF-8', 'LC_CTYPE': 'en_US.UTF-8'}
         self.streams = ["http://%s:%d/commits" %(HOST, PORT)]
 
-        #TODO: svnadmin path is set hardcoded, might want to handle it an other way.
         self.hook = None
         self.svnbin = '/usr/bin/svnadmin';
         self.worker = BackgroundWorker(self.svnbin, self.env, self.hook)
@@ -263,56 +262,6 @@ class BackgroundWorker(threading.Thread):
         "Validate the specific job."
         logging.info("Starting validation of rev: %s in repo: %s" % (job.rev, job.repo))
         return job.validate_rev(job.repo, job.rev)
-
-class ReloadableConfig(ConfigParser.SafeConfigParser):
-    def __init__(self, fname):
-        ConfigParser.SafeConfigParser.__init__(self)
-
-        self.fname = fname
-        self.read(fname)
-
-        ### install a signal handler to set SHOULD_RELOAD. BDEC should
-        ### poll this flag, and then adjust its internal structures after
-        ### the reload.
-        self.should_reload = False
-
-    def reload(self):
-        # Delete everything. Just re-reading would overlay, and would not
-        # remove sections/options. Note that [DEFAULT] will not be removed.
-        for section in self.sections():
-            self.remove_section(section)
-
-        # Now re-read the configuration file.
-        self.read(fname)
-
-    def get_value(self, which):
-        return self.get(ConfigParser.DEFAULTSECT, which)
-
-    def get_optional_value(self, which, default=None):
-        if self.has_option(ConfigParser.DEFAULTSECT, which):
-            return self.get(ConfigParser.DEFAULTSECT, which)
-        else:
-            return default
-
-    def get_env(self):
-        env = os.environ.copy()
-        default_options = self.defaults().keys()
-        for name, value in self.items('env'):
-            if name not in default_options:
-                env[name] = value
-        return env
-
-    def get_track(self):
-        "Return the {PATH: URL} dictionary of working copies to track."
-        track = dict(self.items('track'))
-        for name in self.defaults().keys():
-            del track[name]
-        return track
-
-    def optionxform(self, option):
-        # Do not lowercase the option name.
-        return str(option)
-
 
 class Daemon(daemonize.Daemon):
     def __init__(self, logfile, pidfile, umask, bdec):
