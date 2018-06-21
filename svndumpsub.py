@@ -207,10 +207,7 @@ class BigDoEverythingClasss(object):
         
                 
 # Start logging warnings if the work backlog reaches this many items
-BACKLOG_TOO_HIGH = 20
-OP_BOOT = 'boot'
-OP_UPDATE = 'update'
-OP_CLEANUP = 'cleanup'
+BACKLOG_TOO_HIGH = 500
 
 class BackgroundWorker(threading.Thread):
     def __init__(self, svnbin, env, hook):
