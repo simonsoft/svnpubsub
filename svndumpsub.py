@@ -47,10 +47,6 @@ import svnpubsub.util
 
 HOST = "127.0.0.1"
 PORT = 2069
-AWS = '/home/vagrant/.local/bin/aws'
-SVNADMIN = '/usr/bin/svnadmin'
-SVN = '/usr/bin/svn'
-SVNROOT = '/srv/cms/svn'
 REPO_EXCLUDES = ['demo', 'repo']
 
 assert hasattr(subprocess, 'check_call')
@@ -82,7 +78,6 @@ class Job(object):
         self.head = head
         self.env = {'LANG': 'en_US.UTF-8', 'LC_ALL': 'en_US.UTF-8'}
         self.shard_type = 'shard0'
-    
     def get_key(self, rev):
         #/v1/Cloudid/reponame/shardX/0000001000/reponame-0000001000.svndump.gz
         return '%s/%s' % (self._get_s3_base(), self.get_name(rev)) 
@@ -92,11 +87,7 @@ class Job(object):
         revStr = revStr.zfill(10)
         name = self.repo + '-' + revStr + '.svndump.gz'
         #reponame-0000001000.svndump.gz
-        return name
-        
-    def _get_bucket_name(self):
-        #TODO: Should not be hardcoded
-        return 'cms-review-jandersson'  
+        return name  
     
     def _get_s3_base(self, **optional_rev):
         
@@ -107,8 +98,6 @@ class Job(object):
             d = str(int(d)) + '000'
             shard_number = d.zfill(10)
             
-        #TODO: Should not be hardcoded
-        bucket = self._get_bucket_name()
         version = 'v1'
         cloudid = 'jandersson'
         # v1/jandersson/demo1/shard0/0000000000
@@ -122,7 +111,7 @@ class Job(object):
     
     def _get_aws_cp_args(self, rev):
         # aws s3 cp - s3://cms-review-jandersson/v1/jandersson/demo1/shard0/0000000000/demo1-0000000363.svndump.gz
-        return [AWS, 's3', 'cp', '-',  's3://%s/%s' % (self._get_bucket_name() ,self.get_key(rev))]
+        return [AWS, 's3', 'cp', '-',  's3://%s/%s' % (BUCKET, self.get_key(rev))]
         
     #Will recursively check a bucket if (rev - 1) exists until it finds a rev dump. 
     def validate_rev(self, rev):
@@ -135,7 +124,7 @@ class Job(object):
             return True
         
         key = self.get_key(rev_to_validate)
-        args = [AWS, 's3api', 'head-object', '--bucket', self._get_bucket_name(), '--key', key] # Maybe use s3 cli or s3 api to do this.
+        args = [AWS, 's3api', 'head-object', '--bucket', BUCKET, '--key', key] # Maybe use s3 cli or s3 api to do this.
         
         pipe = subprocess.Popen((args), stdout=subprocess.PIPE) 
         output, errput = pipe.communicate()
@@ -216,7 +205,7 @@ class JobMulti(Job):
     
     def _validate_shard(self, shard):
         key = self.get_key(shard)
-        args = [AWS, 's3api', 'head-object', '--bucket', self._get_bucket_name(), '--key', key]
+        args = [AWS, 's3api', 'head-object', '--bucket', BUCKET, '--key', key]
         
         pipe = subprocess.Popen((args), stdout=subprocess.PIPE) 
         output, errput = pipe.communicate()
@@ -437,7 +426,45 @@ def handle_options(options):
         logging.info('setting uid %d', uid)
         os.setuid(uid)
 
+def handle_options(options):
 
+    if not options.aws:
+        raise ValueError('A valid --aws has to be provided (path to aws executable)')
+    else:
+        global AWS
+        AWS = options.aws        
+
+    if not options.svnadmin:
+        raise ValueError('A valid --svnadmin has to be provided (path to svnadmin executable)')
+    else:
+        global SVNADMIN
+        SVNADMIN = options.svnadmin        
+        
+
+    if not options.svnroot:
+        raise ValueError('A valid --svnroot has to be provided (path to location of svn repositories)')
+    else:
+        global SVNROOT
+        SVNROOT = options.svnroot
+    
+    if options.history and not options.svn:
+        raise ValueError('A valid --svn has to be provided if combined with --history (path to svn executable)')    
+    else:    
+        global SVN
+        SVN = options.svn
+
+    if not options.bucket:
+        raise ValueError('A valid --bucket has to be provided (bucket where dump files will be stored)')
+    else:
+        global BUCKET
+        BUCKET = options.bucket        
+
+    if not options.cloudid:
+        raise ValueError('A valid --cloudid has to be provided (aws cloudid)')
+    else:
+        global CLOUDID
+        CLOUDID = options.cloudid        
+        
 def main(args):
     parser = optparse.OptionParser(
         description='An SvnPubSub client to keep working copies synchronized '
@@ -449,17 +476,32 @@ def main(args):
     parser.add_option('--pidfile',
                       help="the process' PID will be written to this file")
     parser.add_option('--uid',
-                      help='switch to this UID before running')
+                  help='switch to this UID before running')
     parser.add_option('--gid',
-                      help='switch to this GID before running')
-    parser.add_option('--umask',
-                      help='set this (octal) umask before running')
+                  help='switch to this GID before running')                        
     parser.add_option('--daemon', action='store_true',
                       help='run as a background daemon')
+    parser.add_option('--umask',
+                      help='set this (octal) umask before running')                  
     parser.add_option('--history',
                         help='Will dump and backup all repositories within shard3 ranges (even thousands) e.g --history reponame')
-
+    parser.add_option('--aws',
+                    help='path to aws executable e.g /usr/bin/aws')
+    parser.add_option('--svnadmin',
+                    help='path to svn executable e.g /usr/bin/svnadmin')
+    parser.add_option('--svnroot',
+                    help='path to repository locations /srv/cms/svn')
+    parser.add_option('--svn',
+                    help='path to repository locations /srv/cms/svn')                    
+    parser.add_option('--bucket',
+                help='name of S3 bucket where dumps will be stored')
+    parser.add_option('--cloudid',
+                help='AWS cloud-id')
+                                                    
     options, extra = parser.parse_args(args)
+    
+    # Process any provided options.
+    handle_options(options)
     
     if options.history and not options.daemon:
         JobMulti(options.history)
@@ -468,9 +510,7 @@ def main(args):
             parser.error('LOGFILE is required when running as a daemon')
         if options.daemon and not options.pidfile:
             parser.error('PIDFILE is required when running as a daemon')
-
-        # Process any provided options.
-        handle_options(options)
+        
         bdec = BigDoEverythingClasss()
     
         # We manage the logfile ourselves (along with possible rotation). The
