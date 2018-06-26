@@ -106,7 +106,6 @@ class Job(object):
             d = str(int(d)) + '000'
             shard_number = d.zfill(10)
             
-        
         #TODO: Should not be hardcoded
         bucket = self._get_bucket_name()
         version = 'v1'
@@ -157,19 +156,22 @@ class Job(object):
         rev_round_down = int((self.head - 1) / 1000)
         return rev_round_down * 1000
             
-    def dump_cm_to_s3(self):
+    def _backup_commit(self):
         logging.info('Dumping and uploading rev: %s from repo: %s' % (self.rev, self.repo))
+        self.dump_zip_upload(self._get_svn_dump_args(self.rev, self.rev), self._get_aws_cp_args(self.rev))
         
+        
+    def dump_zip_upload(self, dump_args, aws_args):
         gz = '/bin/gzip'
         gz_args = [gz]
 
         # Svn admin dump
-        p1 = subprocess.Popen((self._get_svn_dump_args(self.rev, self.rev)), stdout=subprocess.PIPE, env=self.env)
+        p1 = subprocess.Popen((dump_args), stdout=subprocess.PIPE, env=self.env)
         # Zip stout
         p2 = subprocess.Popen((gz_args), stdin=p1.stdout, stdout=subprocess.PIPE)
         p1.stdout.close()
         # Upload zip.stdout to s3
-        output = subprocess.check_output((self._get_aws_cp_args(self.rev)), stdin=p2.stdout)
+        output = subprocess.check_output((aws_args), stdin=p2.stdout)
         #TODO: Do we need to close stuff?
         p2.communicate()[0]
 
@@ -187,7 +189,7 @@ class JobMulti(Job):
         for shard in shards:
             missing_dump = self._validate_dumped_shards(shard)
             if missing_dump:
-                self._dump_shard(shard)
+                self._backup_shard(shard)
             
     def _get_head(self, repo):
         fqdn = socket.getfqdn()
@@ -230,23 +232,13 @@ class JobMulti(Job):
                 logging.error('Could not parse response from s3api head-object with key: %s' % key)
                 raise 'Could not parse response from s3api head-object with key: %s' % key        
         
-    def _dump_shard(self, shard):
+    def _backup_shard(self, shard):
         logging.info('Dumping and uploading shard: %s from repo: %s' % (shard, self.repo))
-        gz = '/bin/gzip'
-        gz_args = [gz]
-        
         start_rev = str(shard) + '000'
         to_rev = str(shard) + '999'
         
         svn_args = self._get_svn_dump_args(start_rev, to_rev)
-        # Svn admin dump
-        p1 = subprocess.Popen((svn_args), stdout=subprocess.PIPE, env=self.env)
-        # Zip stout
-        p2 = subprocess.Popen((gz_args), stdin=p1.stdout, stdout=subprocess.PIPE)
-        # Upload zip.stdout to s3
-        output = subprocess.check_output((self._get_aws_cp_args(shard)), stdin=p2.stdout)
-        #TODO: Do we need to close stuff?
-        p2.communicate()[0]
+        self.dump_zip_upload(svn_args, self._get_aws_cp_args(shard))
    
     def get_key(self, rev):
         #/v1/Cloudid/reponame/shardX/0000001000/reponame-0000001000.svndump.gz
@@ -313,7 +305,7 @@ class BackgroundWorker(threading.Thread):
             try:
                 prev_exists = self._validate(job)
                 if prev_exists:
-                    job.dump_cm_to_s3()
+                    job._backup_commit()
                 else:
                     logging.info('Rev - 1 has not been dumped, adding it to the queue')
                     self.add_job(job)
