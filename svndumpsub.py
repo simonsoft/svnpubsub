@@ -470,29 +470,35 @@ def main(args):
                       help='set this (octal) umask before running')
     parser.add_option('--daemon', action='store_true',
                       help='run as a background daemon')
+    parser.add_option('--history',
+                        help='Will dump and backup all repositories within shard3 ranges (even thousands)')
 
     options, extra = parser.parse_args(args)
-
-    if options.daemon and not options.logfile:
-        parser.error('LOGFILE is required when running as a daemon')
-    if options.daemon and not options.pidfile:
-        parser.error('PIDFILE is required when running as a daemon')
-
-    # Process any provided options.
-    handle_options(options)
-    bdec = BigDoEverythingClasss()
     
-    # We manage the logfile ourselves (along with possible rotation). The
-    # daemon process can just drop stdout/stderr into /dev/null.
-    d = Daemon('/dev/null', os.path.abspath(options.pidfile),
-               options.umask, bdec)
-    if options.daemon:
-        # Daemonize the process and call sys.exit() with appropriate code
-        d.daemonize_exit()
+    if options.history and not options.daemon:
+        JobMulti(options.history)
     else:
-        # Just run in the foreground (the default)
-        d.foreground()
+        if options.daemon and not options.logfile:
+            parser.error('LOGFILE is required when running as a daemon')
+        if options.daemon and not options.pidfile:
+            parser.error('PIDFILE is required when running as a daemon')
+
+        # Process any provided options.
+        handle_options(options)
+        bdec = BigDoEverythingClasss()
+    
+        # We manage the logfile ourselves (along with possible rotation). The
+        # daemon process can just drop stdout/stderr into /dev/null.
+        d = Daemon('/dev/null', os.path.abspath(options.pidfile),
+                options.umask, bdec)
+        if options.daemon:
+            # Daemonize the process and call sys.exit() with appropriate code
+            d.daemonize_exit()
+        else:
+            # Just run in the foreground (the default)
+            d.foreground()
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    main(sys.argv[1:]) 
+        
