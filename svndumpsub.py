@@ -47,6 +47,7 @@ import svnpubsub.util
 
 HOST = "127.0.0.1"
 PORT = 2069
+#Will not handle commits if repo starts with any name icluded in REPO_EXCLUDES
 REPO_EXCLUDES = ['demo', 'repo']
 
 assert hasattr(subprocess, 'check_call')
@@ -471,19 +472,19 @@ def main(args):
         usage='Usage: %prog [options] CONFIG_FILE',
         )
     parser.add_option('--logfile',
-                      help='filename for logging')
+                    help='filename for logging')
     parser.add_option('--pidfile',
-                      help="the process' PID will be written to this file")
+                    help="the process' PID will be written to this file")
     parser.add_option('--uid',
-                  help='switch to this UID before running')
+                    help='switch to this UID before running')
     parser.add_option('--gid',
-                  help='switch to this GID before running')                        
+                    help='switch to this GID before running')                        
     parser.add_option('--daemon', action='store_true',
-                      help='run as a background daemon')
+                    help='run as a background daemon')
     parser.add_option('--umask',
-                      help='set this (octal) umask before running')                  
+                    help='set this (octal) umask before running')                  
     parser.add_option('--history',
-                        help='Will dump and backup all repositories within shard3 ranges (even thousands) e.g --history reponame')
+                    help='Will dump and backup all repositories within shard3 ranges (even thousands) e.g --history reponame')
     parser.add_option('--aws',
                     help='path to aws executable e.g /usr/bin/aws')
     parser.add_option('--svnadmin',
@@ -493,9 +494,9 @@ def main(args):
     parser.add_option('--svn',
                     help='path to repository locations /srv/cms/svn')                    
     parser.add_option('--bucket',
-                help='name of S3 bucket where dumps will be stored')
+                    help='name of S3 bucket where dumps will be stored')
     parser.add_option('--cloudid',
-                help='AWS cloud-id')
+                    help='AWS cloud-id')
                                                     
     options, extra = parser.parse_args(args)
     
