@@ -120,9 +120,9 @@ class Job(object):
         #svnadmin dump --incremental --deltas /srv/cms/svn/demo1 -r 237:237
         return [SVNADMIN, 'dump', '--incremental', '--deltas', path, dump_rev]
     
-    def _get_aws_cp_args(self):
+    def _get_aws_cp_args(self, rev):
         # aws s3 cp - s3://cms-review-jandersson/v1/jandersson/demo1/shard0/0000000000/demo1-0000000363.svndump.gz
-        return [AWS, 's3', 'cp', '-',  's3://%s/%s' % (self._get_bucket_name() ,self.get_key(self.rev))]
+        return [AWS, 's3', 'cp', '-',  's3://%s/%s' % (self._get_bucket_name() ,self.get_key(rev))]
         
     #Will recursively check a bucket if (rev - 1) exists until it finds a rev dump. 
     def validate_rev(self, repo, rev):
@@ -169,7 +169,7 @@ class Job(object):
         p2 = subprocess.Popen((gz_args), stdin=p1.stdout, stdout=subprocess.PIPE)
         p1.stdout.close()
         # Upload zip.stdout to s3
-        output = subprocess.check_output((self._get_aws_cp_args()), stdin=p2.stdout)
+        output = subprocess.check_output((self._get_aws_cp_args(self.rev)), stdin=p2.stdout)
         #TODO: Do we need to close stuff?
         p2.communicate()[0]
 
@@ -247,11 +247,7 @@ class JobMulti(Job):
         output = subprocess.check_output((self._get_aws_cp_args(shard)), stdin=p2.stdout)
         #TODO: Do we need to close stuff?
         p2.communicate()[0]
-
-    def _get_aws_cp_args(self, shard):
-        # aws s3 cp - s3://cms-review-jandersson/v1/jandersson/demo1/shard0/0000000000/demo1-0000000363.svndump.gz
-        return [AWS, 's3', 'cp', '-',  's3://%s/%s' % (self._get_bucket_name() ,self.get_key(shard))]    
-    
+   
     def get_key(self, rev):
         #/v1/Cloudid/reponame/shardX/0000001000/reponame-0000001000.svndump.gz
         return '%s/%s' % (self._get_s3_base(rev = rev), self.get_name(rev)) 
