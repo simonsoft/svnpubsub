@@ -274,7 +274,7 @@ class BigDoEverythingClasss(object):
         self.streams = ["http://%s:%d/commits" %(HOST, PORT)]
 
         self.hook = None
-        self.svnbin = '/usr/bin/svnadmin';
+        self.svnbin = SVNADMIN;
         self.worker = BackgroundWorker(self.svnbin, self.env, self.hook)
         self.watch = [ ]
 
