@@ -114,9 +114,9 @@ class Job(object):
         # v1/jandersson/demo1/shard0/0000000000
         return '%s/%s/%s/%s/%s' % (version, cloudid, self.repo, self.shard_type, shard_number)
         
-    def _get_svn_dump_args(self):
+    def _get_svn_dump_args(self, from_rev, to_rev):
         path = '%s/%s' % (SVNROOT, self.repo)
-        dump_rev = '-r%s:%s' % (self.rev, self.rev)
+        dump_rev = '-r%s:%s' % (from_rev, to_rev)
         #svnadmin dump --incremental --deltas /srv/cms/svn/demo1 -r 237:237
         return [SVNADMIN, 'dump', '--incremental', '--deltas', path, dump_rev]
     
@@ -164,7 +164,7 @@ class Job(object):
         gz_args = [gz]
 
         # Svn admin dump
-        p1 = subprocess.Popen((self._get_svn_dump_args()), stdout=subprocess.PIPE, env=self.env)
+        p1 = subprocess.Popen((self._get_svn_dump_args(self.rev, self.rev)), stdout=subprocess.PIPE, env=self.env)
         # Zip stout
         p2 = subprocess.Popen((gz_args), stdin=p1.stdout, stdout=subprocess.PIPE)
         p1.stdout.close()
@@ -229,23 +229,16 @@ class JobMulti(Job):
             except ValueError:
                 logging.error('Could not parse response from s3api head-object with key: %s' % key)
                 raise 'Could not parse response from s3api head-object with key: %s' % key        
-            
-    def _get_svn_dump_args(self, start_rev):
-        path = '%s/%s' % (SVNROOT, self.repo)
-        
-        to_rev = str(start_rev) + '999'
-        start_rev = str(start_rev) + '000'
-        
-        dump_rev = '-r%s:%s' % (start_rev, to_rev)
-        #svnadmin dump --incremental --deltas /srv/cms/svn/demo1 -r 237:237
-        return [SVNADMIN, 'dump', '--incremental', '--deltas', path, dump_rev]
         
     def _dump_shard(self, shard):
         logging.info('Dumping and uploading shard: %s from repo: %s' % (shard, self.repo))
         gz = '/bin/gzip'
         gz_args = [gz]
-
-        svn_args = self._get_svn_dump_args(shard)
+        
+        start_rev = str(shard) + '000'
+        to_rev = str(shard) + '999'
+        
+        svn_args = self._get_svn_dump_args(start_rev, to_rev)
         # Svn admin dump
         p1 = subprocess.Popen((svn_args), stdout=subprocess.PIPE, env=self.env)
         # Zip stout
