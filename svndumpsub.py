@@ -488,11 +488,11 @@ def main(args):
     parser.add_option('--aws',
                     help='path to aws executable e.g /usr/bin/aws')
     parser.add_option('--svnadmin',
-                    help='path to svn executable e.g /usr/bin/svnadmin')
+                    help='path to svnadmin executable e.g /usr/bin/svnadmin')
     parser.add_option('--svnroot',
                     help='path to repository locations /srv/cms/svn')
     parser.add_option('--svn',
-                    help='path to repository locations /srv/cms/svn')                    
+                    help='path to svn executable only required when combined with --history e.g /usr/bin/svn')                    
     parser.add_option('--bucket',
                     help='name of S3 bucket where dumps will be stored')
     parser.add_option('--cloudid',
