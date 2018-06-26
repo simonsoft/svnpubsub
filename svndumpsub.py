@@ -51,7 +51,7 @@ AWS = '/home/vagrant/.local/bin/aws'
 SVNADMIN = '/usr/bin/svnadmin'
 SVN = '/usr/bin/svn'
 SVNROOT = '/srv/cms/svn'
-REPO_EXCLUDES = ['dump', 'repo']
+REPO_EXCLUDES = ['demo', 'repo']
 
 assert hasattr(subprocess, 'check_call')
 
