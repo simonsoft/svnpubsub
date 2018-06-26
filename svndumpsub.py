@@ -51,6 +51,7 @@ AWS = '/home/vagrant/.local/bin/aws'
 SVNADMIN = '/usr/bin/svnadmin'
 SVN = '/usr/bin/svn'
 SVNROOT = '/srv/cms/svn'
+REPO_EXCLUDES = ['dump', 'repo']
 
 assert hasattr(subprocess, 'check_call')
 
@@ -267,10 +268,16 @@ class BigDoEverythingClasss(object):
             return
         logging.info("COMMIT r%d (%d paths) from %s"
                      % (commit.id, len(commit.changed), url))
-                     
-        job = Job(commit.repositoryname, commit.id, commit.id)
-        self.worker.add_job(job)
         
+        excluded = False
+        for repo in REPO_EXCLUDES:
+            if commit.repositoryname.startswith(repo):
+                logging.info('Commit happend in exlcuded repository, will not procced with backup, repo: %s' % commit.repositoryname)      
+                excluded = True
+                
+        if not excluded:
+            job = Job(commit.repositoryname, commit.id, commit.id)
+            self.worker.add_job(job)
                 
 # Start logging warnings if the work backlog reaches this many items
 BACKLOG_TOO_HIGH = 500
@@ -450,7 +457,7 @@ def main(args):
     parser.add_option('--daemon', action='store_true',
                       help='run as a background daemon')
     parser.add_option('--history',
-                        help='Will dump and backup all repositories within shard3 ranges (even thousands)')
+                        help='Will dump and backup all repositories within shard3 ranges (even thousands) e.g --history reponame')
 
     options, extra = parser.parse_args(args)
     
