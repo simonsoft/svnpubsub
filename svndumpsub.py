@@ -124,7 +124,7 @@ class Job(object):
         return [AWS, 's3', 'cp', '-',  's3://%s/%s' % (self._get_bucket_name() ,self.get_key(rev))]
         
     #Will recursively check a bucket if (rev - 1) exists until it finds a rev dump. 
-    def validate_rev(self, repo, rev):
+    def validate_rev(self, rev):
         
         validate_to_rev = self._get_validate_to_rev()
         rev_to_validate = rev - 1
@@ -187,8 +187,9 @@ class JobMulti(Job):
         self.head = self._get_head(self.repo)
         shards = self._get_shards(self.head)
         for shard in shards:
-            missing_dump = self._validate_dumped_shards(shard)
+            missing_dump = self._validate_shard(shard)
             if missing_dump:
+                logging.info('Shard is missing will dump and upload shard %s' % shard)
                 self._backup_shard(shard)
             
     def _get_head(self, repo):
@@ -212,7 +213,7 @@ class JobMulti(Job):
             
         return shards
     
-    def _validate_dumped_shards(self, shard):
+    def _validate_shard(self, shard):
         key = self.get_key(shard)
         args = [AWS, 's3api', 'head-object', '--bucket', self._get_bucket_name(), '--key', key]
         
@@ -327,7 +328,7 @@ class BackgroundWorker(threading.Thread):
     def _validate(self, job, boot=False):
         "Validate the specific job."
         logging.info("Starting validation of rev: %s in repo: %s" % (job.rev, job.repo))
-        return job.validate_rev(job.repo, job.rev)
+        return job.validate_rev(job.rev)
 
 class Daemon(daemonize.Daemon):
     def __init__(self, logfile, pidfile, umask, bdec):
