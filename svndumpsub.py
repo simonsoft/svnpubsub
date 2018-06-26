@@ -33,6 +33,7 @@ import stat
 import os
 import re
 import json
+import socket
 import logging.handlers
 try:
   import Queue
@@ -46,11 +47,13 @@ import svnpubsub.util
 
 HOST = "127.0.0.1"
 PORT = 2069
-AWS = "/home/vagrant/.local/bin/aws"
-SVNADMIN = "/usr/bin/svnadmin"
+AWS = '/home/vagrant/.local/bin/aws'
+SVNADMIN = '/usr/bin/svnadmin'
+SVN = '/usr/bin/svn'
 SVNROOT = '/srv/cms/svn'
 
 assert hasattr(subprocess, 'check_call')
+
 def check_call(*args, **kwds):
     """Wrapper around subprocess.check_call() that logs stderr upon failure,
     with an optional list of exit codes to consider non-failure."""
@@ -77,6 +80,7 @@ class Job(object):
         self.rev = rev
         self.head = head
         self.env = {'LANG': 'en_US.UTF-8', 'LC_ALL': 'en_US.UTF-8'}
+        self.shard_type = 'shard0'
     
     def get_key(self, rev):
         #/v1/Cloudid/reponame/shardX/0000001000/reponame-0000001000.svndump.gz
@@ -102,9 +106,8 @@ class Job(object):
         bucket = self._get_bucket_name()
         version = 'v1'
         cloudid = 'jandersson'
-        shard_type = 'shard0'
         # v1/jandersson/demo1/shard0/0000000000
-        return '%s/%s/%s/%s/%s' % (version, cloudid, self.repo, shard_type, shard_number) 
+        return '%s/%s/%s/%s/%s' % (version, cloudid, self.repo, self.shard_type, shard_number)
         
     def _get_svn_dump_args(self):
         path = '%s/%s' % (SVNROOT, self.repo)
@@ -163,8 +166,105 @@ class Job(object):
         # Upload zip.stdout to s3
         output = subprocess.check_output((self._get_aws_cp_args()), stdin=p2.stdout)
         #TODO: Do we need to close stuff?
-        p2.communicate()[0]    
-                
+        p2.communicate()[0]
+
+
+# 1. Always go for all repos and exclude repos in history option
+# 2. One repo at the time, repos spcified in history option
+class JobMulti(Job):
+    
+    def __init__(self, repo):
+        self.shard_type = 'shard3'
+        self.repo = repo
+        self.env = {'LANG': 'en_US.UTF-8', 'LC_ALL': 'en_US.UTF-8'}
+        self.head = self._get_head(self.repo)
+        shards = self._get_shards(self.head)
+        for shard in shards:
+            dump = self._validate_dumped_shards(shard)
+            if dump:
+                self._dump_shard(shard)
+            
+    def _get_head(self, repo):
+        fqdn = socket.getfqdn()
+        url = 'http://%s/svn/%s' % (fqdn, repo)
+        
+        args = [SVN, 'info', url]
+        grep_args = ['/bin/grep', 'Revision:']
+        
+        p1 = subprocess.Popen((args), stdout=subprocess.PIPE)
+        output = subprocess.check_output((grep_args), stdin=p1.stdout)
+
+        rev = int(filter(str.isdigit, output))
+        return rev
+    
+    def _get_shards(self, head):
+        shards = []
+        number_of_shards = int(head / 1000)
+        for shard in range(number_of_shards):
+            shards.append(shard)
+            
+        return shards
+    
+    def _validate_dumped_shards(self, shard):
+        key = self.get_key(shard)
+        args = [AWS, 's3api', 'head-object', '--bucket', self._get_bucket_name(), '--key', key]
+        
+        pipe = subprocess.Popen((args), stdout=subprocess.PIPE) 
+        output, errput = pipe.communicate()
+        
+        if pipe.returncode != 0:
+            logging.info('Shard Key do not exist %s' % key)
+            return True
+        else:
+            try:
+                #FUTURE: Parsing response to json. Will allow us to check size. e.g response_body['ContentLength']
+                response_body = json.loads(output)
+                logging.info('Shard key do exist %s' % key)
+                return False
+            except ValueError:
+                logging.error('Could not parse response from s3api head-object with key: %s' % key)
+                raise 'Could not parse response from s3api head-object with key: %s' % key        
+        
+   
+    def _get_s3_base(self, shard):
+        shard_number = str(shard).zfill(10)
+        version = 'v1'
+        cloudid = 'jandersson'
+        # v1/jandersson/demo1/shard3/0000000000
+        return '%s/%s/%s/%s/%s' % (version, cloudid, self.repo, self.shard_type, shard_number)
+            
+    def _get_svn_dump_args(self, start_rev):
+        path = '%s/%s' % (SVNROOT, self.repo)
+        
+        to_rev = str(start_rev) + '999'
+        start_rev = str(start_rev) + '000'
+        
+        dump_rev = '-r%s:%s' % (start_rev, to_rev)
+        #svnadmin dump --incremental --deltas /srv/cms/svn/demo1 -r 237:237
+        return [SVNADMIN, 'dump', '--incremental', '--deltas', path, dump_rev]
+        
+    def _dump_shard(self, shard):
+        logging.info('Dumping and uploading shard: %s from repo: %s' % (shard, self.repo))
+        gz = '/bin/gzip'
+        gz_args = [gz]
+
+        svn_args = self._get_svn_dump_args(shard)
+        # Svn admin dump
+        p1 = subprocess.Popen((svn_args), stdout=subprocess.PIPE, env=self.env)
+        # Zip stout
+        p2 = subprocess.Popen((gz_args), stdin=p1.stdout, stdout=subprocess.PIPE)
+        # Upload zip.stdout to s3
+        output = subprocess.check_output((self._get_aws_cp_args(shard)), stdin=p2.stdout)
+        #TODO: Do we need to close stuff?
+        p2.communicate()[0]
+
+    def _get_aws_cp_args(self, shard):
+        # aws s3 cp - s3://cms-review-jandersson/v1/jandersson/demo1/shard0/0000000000/demo1-0000000363.svndump.gz
+        return [AWS, 's3', 'cp', '-',  's3://%s/%s' % (self._get_bucket_name() ,self.get_key(shard))]    
+    
+    def get_key(self, rev):
+        #/v1/Cloudid/reponame/shardX/0000001000/reponame-0000001000.svndump.gz
+        return '%s/%s' % (self._get_s3_base(rev), self.get_name(rev)) 
         
 class BigDoEverythingClasss(object):
     #removed the config object from __init__.
