@@ -440,19 +440,12 @@ def handle_options(options):
         global SVNADMIN
         SVNADMIN = options.svnadmin        
         
-
     if not options.svnroot:
         raise ValueError('A valid --svnroot has to be provided (path to location of svn repositories)')
     else:
         global SVNROOT
         SVNROOT = options.svnroot
-    
-    if options.history and not options.svn:
-        raise ValueError('A valid --svn has to be provided if combined with --history (path to svn executable)')    
-    else:    
-        global SVN
-        SVN = options.svn
-
+  
     if not options.bucket:
         raise ValueError('A valid --bucket has to be provided (bucket where dump files will be stored)')
     else:
@@ -464,6 +457,12 @@ def handle_options(options):
     else:
         global CLOUDID
         CLOUDID = options.cloudid        
+
+    if options.history and not options.svn:
+        raise ValueError('A valid --svn has to be provided if combined with --history (path to svn executable)')    
+    else:    
+        global SVN
+        SVN = options.svn        
         
 def main(args):
     parser = optparse.OptionParser(
