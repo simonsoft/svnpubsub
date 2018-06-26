@@ -97,10 +97,15 @@ class Job(object):
         #TODO: Should not be hardcoded
         return 'cms-review-jandersson'  
     
-    def _get_s3_base(self):
-        d = self.rev / 1000;
-        d = str(int(d)) + '000'
-        shard_number = d.zfill(10)
+    def _get_s3_base(self, **optional_rev):
+        
+        if 'rev' in optional_rev:
+            shard_number = str(optional_rev['rev']).zfill(10)
+        else:
+            d = self.rev / 1000;
+            d = str(int(d)) + '000'
+            shard_number = d.zfill(10)
+            
         
         #TODO: Should not be hardcoded
         bucket = self._get_bucket_name()
@@ -224,14 +229,6 @@ class JobMulti(Job):
             except ValueError:
                 logging.error('Could not parse response from s3api head-object with key: %s' % key)
                 raise 'Could not parse response from s3api head-object with key: %s' % key        
-        
-   
-    def _get_s3_base(self, shard):
-        shard_number = str(shard).zfill(10)
-        version = 'v1'
-        cloudid = 'jandersson'
-        # v1/jandersson/demo1/shard3/0000000000
-        return '%s/%s/%s/%s/%s' % (version, cloudid, self.repo, self.shard_type, shard_number)
             
     def _get_svn_dump_args(self, start_rev):
         path = '%s/%s' % (SVNROOT, self.repo)
@@ -264,7 +261,7 @@ class JobMulti(Job):
     
     def get_key(self, rev):
         #/v1/Cloudid/reponame/shardX/0000001000/reponame-0000001000.svndump.gz
-        return '%s/%s' % (self._get_s3_base(rev), self.get_name(rev)) 
+        return '%s/%s' % (self._get_s3_base(rev = rev), self.get_name(rev)) 
         
 class BigDoEverythingClasss(object):
     #removed the config object from __init__.
