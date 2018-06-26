@@ -185,8 +185,8 @@ class JobMulti(Job):
         self.head = self._get_head(self.repo)
         shards = self._get_shards(self.head)
         for shard in shards:
-            dump = self._validate_dumped_shards(shard)
-            if dump:
+            missing_dump = self._validate_dumped_shards(shard)
+            if missing_dump:
                 self._dump_shard(shard)
             
     def _get_head(self, repo):
