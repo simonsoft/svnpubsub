@@ -389,44 +389,6 @@ def prepare_logging(logfile):
     ### use logging.INFO for now. switch to cmdline option or a config?
     root.setLevel(logging.INFO)
 
-
-def handle_options(options):
-    # Set up the logging, then process the rest of the options.
-    prepare_logging(options.logfile)
-
-    # In daemon mode, we let the daemonize module handle the pidfile.
-    # Otherwise, we should write this (foreground) PID into the file.
-    if options.pidfile and not options.daemon:
-        pid = os.getpid()
-        # Be wary of symlink attacks
-        try:
-            os.remove(options.pidfile)
-        except OSError:
-            pass
-        fd = os.open(options.pidfile, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-                     stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
-        os.write(fd, '%d\n' % pid)
-        os.close(fd)
-        logging.info('pid %d written to %s', pid, options.pidfile)
-
-    if options.gid:
-        try:
-            gid = int(options.gid)
-        except ValueError:
-            import grp
-            gid = grp.getgrnam(options.gid)[2]
-        logging.info('setting gid %d', gid)
-        os.setgid(gid)
-
-    if options.uid:
-        try:
-            uid = int(options.uid)
-        except ValueError:
-            import pwd
-            uid = pwd.getpwnam(options.uid)[2]
-        logging.info('setting uid %d', uid)
-        os.setuid(uid)
-
 def handle_options(options):
 
     if not options.aws:
@@ -463,7 +425,45 @@ def handle_options(options):
         raise ValueError('A valid --svn has to be provided if combined with --history (path to svn executable)')    
     else:    
         global SVN
-        SVN = options.svn        
+        SVN = options.svn
+
+    # Set up the logging, then process the rest of the options.
+    
+
+    # In daemon mode, we let the daemonize module handle the pidfile.
+    # Otherwise, we should write this (foreground) PID into the file.
+    if options.pidfile and not options.daemon:
+        pid = os.getpid()
+        # Be wary of symlink attacks
+        try:
+            os.remove(options.pidfile)
+        except OSError:
+            pass
+        fd = os.open(options.pidfile, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                     stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+        os.write(fd, '%d\n' % pid)
+        os.close(fd)
+        logging.info('pid %d written to %s', pid, options.pidfile)
+
+    if options.gid:
+        try:
+            gid = int(options.gid)
+        except ValueError:
+            import grp
+            gid = grp.getgrnam(options.gid)[2]
+        logging.info('setting gid %d', gid)
+        os.setgid(gid)
+
+    if options.uid:
+        try:
+            uid = int(options.uid)
+        except ValueError:
+            import pwd
+            uid = pwd.getpwnam(options.uid)[2]
+        logging.info('setting uid %d', uid)
+        os.setuid(uid)
+    
+    prepare_logging(options.logfile)    
         
 def main(args):
     parser = optparse.OptionParser(
