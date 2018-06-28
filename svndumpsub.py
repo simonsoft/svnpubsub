@@ -112,7 +112,7 @@ class Job(object):
     
     def _get_aws_cp_args(self, rev):
         # aws s3 cp - s3://cms-review-jandersson/v1/jandersson/demo1/shard0/0000000000/demo1-0000000363.svndump.gz
-        return [AWS, 's3', 'cp', '-',  's3://%s/%s' % (BUCKET, self.get_key(rev))]
+        return [AWS, 's3', 'cp', '-', 's3://%s/%s' % (BUCKET, self.get_key(rev))]
         
     #Will recursively check a bucket if (rev - 1) exists until it finds a rev dump. 
     def validate_rev(self, rev):
