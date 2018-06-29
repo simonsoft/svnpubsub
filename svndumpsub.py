@@ -126,12 +126,14 @@ class Job(object):
         
         key = self.get_key(rev_to_validate)
         args = [AWS, 's3api', 'head-object', '--bucket', BUCKET, '--key', key] # Maybe use s3 cli or s3 api to do this.
-        
-        pipe = subprocess.Popen((args), stdout=subprocess.PIPE) 
+
+        pipe = subprocess.Popen((args), stdout=subprocess.PIPE, stderr=subprocess.PIPE) 
         output, errput = pipe.communicate()
         
         if pipe.returncode != 0:
             logging.info('S3 Key do not exist %s' % key)
+            if errput is not None:
+                logging.warn('AWS s3api head-object failed with returncode %s, %s' % (pipe.returncode, errput))
             return False
         else:
             try:
