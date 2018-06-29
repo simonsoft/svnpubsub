@@ -176,7 +176,6 @@ class JobMulti(Job):
     def __init__(self, repo):
         self.shard_type = 'shard3'
         self.repo = repo
-        self.env = {'LANG': 'en_US.UTF-8', 'LC_ALL': 'en_US.UTF-8'}
         self.head = self._get_head(self.repo)
         shards = self._get_shards(self.head)
         for shard in shards:
@@ -241,8 +240,6 @@ class JobMulti(Job):
 class BigDoEverythingClasss(object):
     #removed the config object from __init__.
     def __init__(self):
-        #TODO: Should home be vagrant? or SVN HOME? Not sure if this is needed.
-        self.env = {'LANG': 'en_US.UTF-8', 'LC_ALL': 'en_US.UTF-8', 'LC_CTYPE': 'en_US.UTF-8'}
         self.streams = ["http://%s:%d/commits" %(HOST, PORT)]
 
         self.hook = None
@@ -370,7 +367,6 @@ class Daemon(daemonize.Daemon):
 
 def prepare_logging(logfile):
     "Log to the specified file, or to stdout if None."
-
     if logfile:
         # Rotate logs daily, keeping 7 days worth.
         handler = logging.handlers.TimedRotatingFileHandler(
