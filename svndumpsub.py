@@ -194,7 +194,7 @@ class JobMulti(Job):
 
         path = '%s/%s' % (SVNROOT, repo)
         args = [SVNLOOK, 'youngest', path]
-        grep_args = ['/bin/grep', '[0-9]+']
+        grep_args = ['/bin/grep', '^[0-9]\+']
 
         p1 = subprocess.Popen((args), stdout=subprocess.PIPE)
         output = subprocess.check_output((grep_args), stdin=p1.stdout)
@@ -424,11 +424,16 @@ def handle_options(options):
         global CLOUDID
         CLOUDID = options.cloudid
 
-    if options.history and not options.svnlook:
-        raise ValueError('A valid --svnlook has to be provided if combined with --history (path to svnlook executable)')
-    else:
+    if options.svnlook:
+        global SVNLOOK
+        SVNLOOK = options.svnlook
+
+    if options.svn:
         global SVN
         SVN = options.svn
+
+    if options.history and not options.svnlook:
+        raise ValueError('A valid --svnlook has to be provided if combined with --history (path to svnlook executable)')
 
     # Set up the logging, then process the rest of the options.
 
