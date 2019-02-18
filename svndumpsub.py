@@ -115,6 +115,22 @@ class Job(object):
         # aws s3 cp - s3://cms-review-jandersson/v1/jandersson/demo1/shard0/0000000000/demo1-0000000363.svndump.gz
         return [AWS, 's3', 'cp', '-', 's3://%s/%s' % (BUCKET, self.get_key(rev))]
 
+    def _validate_shard(self, rev):
+        key = self.get_key(rev)
+        try:
+            response = s3client.head_object(Bucket=BUCKET, Key=key)
+            logging.debug('Shard key exists: %s' % key)
+            if (not response["ContentLength"] > 0):
+                logging.warning('Dump file empty: %s' % key)
+                return False
+            #logging.info(response)
+            return True
+        except:
+            logging.info('S3 exception')
+            logging.info('Shard key does not exist: %s' % key)
+            return False
+
+
     #Will recursively check a bucket if (rev - 1) exists until it finds a rev dump.
     def validate_rev(self, rev):
 
@@ -125,26 +141,8 @@ class Job(object):
             logging.info('At first possible rev in shard, will not validate further rev: %s', rev_to_validate)
             return True
 
-        key = self.get_key(rev_to_validate)
-        args = [AWS, 's3api', 'head-object', '--bucket', BUCKET, '--key', key] # Maybe use s3 cli or s3 api to do this.
+        return self._validate_shard(rev_to_validate)
 
-        pipe = subprocess.Popen((args), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output, errput = pipe.communicate()
-
-        if pipe.returncode != 0:
-            logging.info('S3 Key do not exist %s' % key)
-            if errput is not None:
-                logging.warn('AWS s3api head-object failed with returncode %s, %s' % (pipe.returncode, errput))
-            return False
-        else:
-            try:
-                #FUTURE: Parsing response to json. Will allow us to check size. e.g response_body['ContentLength']
-                response_body = json.loads(output)
-                logging.info('Previous key do exists %s will dump from %s' % (key, rev))
-                return True
-            except ValueError:
-                logging.error('Could not parse response from s3api head-object with key: %s' % key)
-                raise 'Could not parse response from s3api head-object with key: %s' % key
 
     def _get_validate_to_rev(self):
         rev_round_down = int((self.head - 1) / 1000)
@@ -197,8 +195,8 @@ class JobMulti(Job):
 
     def _run(self, shards):
         for shard in shards:
-            missing_dump = self._validate_shard(shard)
-            if missing_dump:
+            dump_exists = self._validate_shard(shard)
+            if not dump_exists:
                 logging.info('Shard is missing will dump and upload shard %s' % shard)
                 self._backup_shard(shard)
 
@@ -230,22 +228,6 @@ class JobMulti(Job):
         # rev_min has already been floored
         # Upper limit must be +1 before division (both shard3 and shard0).
         return range(self.rev_min, int((head + 1) / self.shard_div) * self.shard_div, self.shard_div)
-
-    def _validate_shard(self, shard):
-        key = self.get_key(shard)
-        try:
-            response = s3client.head_object(Bucket=BUCKET, Key=key)
-            logging.debug('Shard key exists: %s' % key)
-            if (not response["ContentLength"] > 0)
-                logging.warning('Dump file empty: %s' % key)
-                return True
-            #logging.info(response)
-            return False
-
-        except:
-            logging.info('S3 exception')
-            logging.info('Shard key does not exist: %s' % key)
-            return True
 
 
     def _backup_shard(self, shard):
