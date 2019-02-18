@@ -212,7 +212,7 @@ class JobMulti(Job):
         return shards
 
     def _validate_shard(self, shard):
-        key = self.get_key(shard)
+        key = self.get_key(shard*1000)
         args = [AWS, 's3api', 'head-object', '--bucket', BUCKET, '--key', key]
 
         pipe = subprocess.Popen((args), stdout=subprocess.PIPE)
@@ -225,7 +225,7 @@ class JobMulti(Job):
             try:
                 #FUTURE: Parsing response to json. Will allow us to check size. e.g response_body['ContentLength']
                 response_body = json.loads(output)
-                logging.info('Shard key do exist %s' % key)
+                logging.info('Shard key exists %s' % key)
                 return False
             except ValueError:
                 logging.error('Could not parse response from s3api head-object with key: %s' % key)
@@ -237,7 +237,7 @@ class JobMulti(Job):
         to_rev = str(shard) + '999'
 
         svn_args = self._get_svn_dump_args(start_rev, to_rev)
-        self.dump_zip_upload(svn_args, self._get_aws_cp_args(shard))
+        self.dump_zip_upload(svn_args, self._get_aws_cp_args(start_rev))
 
     def get_key(self, rev):
         #/v1/Cloudid/reponame/shardX/0000001000/reponame-0000001000.svndump.gz
