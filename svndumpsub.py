@@ -94,7 +94,7 @@ class Job(object):
     def _get_s3_base(self, rev):
 
         # Always using 1000 for folders, can not yet support >shard3.
-        d = rev / 1000;
+        d = int(rev) / 1000;
         d = str(int(d)) + '000'
         shard_number = d.zfill(10)
 
