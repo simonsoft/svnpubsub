@@ -79,9 +79,10 @@ class Job(object):
         self.head = head
         self.env = {'LANG': 'en_US.UTF-8', 'LC_ALL': 'en_US.UTF-8'}
         self.shard_type = 'shard0'
+
     def get_key(self, rev):
         #/v1/Cloudid/reponame/shardX/0000001000/reponame-0000001000.svndump.gz
-        return '%s/%s' % (self._get_s3_base(), self.get_name(rev))
+        return '%s/%s' % (self._get_s3_base(rev = rev), self.get_name(rev))
 
     def get_name(self, rev):
         revStr = str(rev)
@@ -90,14 +91,12 @@ class Job(object):
         #reponame-0000001000.svndump.gz
         return name
 
-    def _get_s3_base(self, **optional_rev):
+    def _get_s3_base(self, rev):
 
-        if 'rev' in optional_rev:
-            shard_number = str(optional_rev['rev']).zfill(10)
-        else:
-            d = self.rev / 1000;
-            d = str(int(d)) + '000'
-            shard_number = d.zfill(10)
+        # Always using 1000 for folders, can not yet support >shard3.
+        d = rev / 1000;
+        d = str(int(d)) + '000'
+        shard_number = d.zfill(10)
 
         version = 'v1'
         # v1/CLOUDID/demo1/shard0/0000000000
@@ -239,9 +238,6 @@ class JobMulti(Job):
         svn_args = self._get_svn_dump_args(start_rev, to_rev)
         self.dump_zip_upload(svn_args, self._get_aws_cp_args(start_rev))
 
-    def get_key(self, rev):
-        #/v1/Cloudid/reponame/shardX/0000001000/reponame-0000001000.svndump.gz
-        return '%s/%s' % (self._get_s3_base(rev = rev), self.get_name(rev))
 
 class BigDoEverythingClasss(object):
     #removed the config object from __init__.
