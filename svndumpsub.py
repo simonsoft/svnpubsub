@@ -34,6 +34,7 @@ import os
 import re
 import json
 import socket
+import boto3
 import logging.handlers
 try:
   import Queue
@@ -49,6 +50,8 @@ HOST = "127.0.0.1"
 PORT = 2069
 #Will not handle commits if repo starts with any name icluded in REPO_EXCLUDES
 REPO_EXCLUDES = ['demo', 'repo']
+
+s3client = boto3.client('s3')
 
 assert hasattr(subprocess, 'check_call')
 
@@ -230,23 +233,18 @@ class JobMulti(Job):
 
     def _validate_shard(self, shard):
         key = self.get_key(shard)
-        args = [AWS, 's3api', 'head-object', '--bucket', BUCKET, '--key', key]
 
-        pipe = subprocess.Popen((args), stdout=subprocess.PIPE)
-        output, errput = pipe.communicate()
+        try:
+            response = s3client.head_object(Bucket=BUCKET, Key=key)
+            logging.info('Shard key exists: %s' % key)
+            logging.info(response)
+            return False
 
-        if pipe.returncode != 0:
+        except:
+            logging.info('S3 exception')
             logging.info('Shard key does not exist: %s' % key)
             return True
-        else:
-            try:
-                #FUTURE: Parsing response to json. Will allow us to check size. e.g response_body['ContentLength']
-                response_body = json.loads(output)
-                logging.debug('Shard key exists: %s' % key)
-                return False
-            except ValueError:
-                logging.error('Unable to parse response from s3api head-object with key: %s' % key)
-                raise 'Unable to parse response from s3api head-object with key: %s' % key
+
 
     def _backup_shard(self, shard):
         logging.info('Dumping and uploading shard: %s from repo: %s' % (shard, self.repo))
