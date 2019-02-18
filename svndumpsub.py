@@ -233,11 +233,13 @@ class JobMulti(Job):
 
     def _validate_shard(self, shard):
         key = self.get_key(shard)
-
         try:
             response = s3client.head_object(Bucket=BUCKET, Key=key)
-            logging.info('Shard key exists: %s' % key)
-            logging.info(response)
+            logging.debug('Shard key exists: %s' % key)
+            if (not response["ContentLength"] > 0)
+                logging.warning('Dump file empty: %s' % key)
+                return True
+            #logging.info(response)
             return False
 
         except:
