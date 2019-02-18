@@ -174,6 +174,7 @@ class JobMulti(Job):
 
     def __init__(self, repo):
         self.shard_type = 'shard3'
+        self.env = {'LANG': 'en_US.UTF-8', 'LC_ALL': 'en_US.UTF-8'}
         self.repo = repo
         self.head = self._get_head(self.repo)
         shards = self._get_shards(self.head)
