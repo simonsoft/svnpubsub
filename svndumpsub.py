@@ -111,9 +111,10 @@ class Job(object):
         #svnadmin dump --incremental --deltas /srv/cms/svn/demo1 -r 237:237
         return [SVNADMIN, 'dump', '--incremental', '--deltas', path, dump_rev]
 
-    def _get_aws_cp_args(self, rev):
-        # aws s3 cp - s3://cms-review-jandersson/v1/jandersson/demo1/shard0/0000000000/demo1-0000000363.svndump.gz
-        return [AWS, 's3', 'cp', '-', 's3://%s/%s' % (BUCKET, self.get_key(rev))]
+
+    #def _get_aws_cp_args(self, rev):
+    #    # aws s3 cp - s3://cms-review-jandersson/v1/jandersson/demo1/shard0/0000000000/demo1-0000000363.svndump.gz
+    #    return [AWS, 's3', 'cp', '-', 's3://%s/%s' % (BUCKET, self.get_key(rev))]
 
     def _validate_shard(self, rev):
         key = self.get_key(rev)
@@ -126,7 +127,7 @@ class Job(object):
             #logging.info(response)
             return True
         except:
-            logging.info('S3 exception')
+            logging.debug('S3 exception')
             logging.info('Shard key does not exist: %s' % key)
             return False
 
@@ -150,10 +151,10 @@ class Job(object):
 
     def _backup_commit(self):
         logging.info('Dumping and uploading rev: %s from repo: %s' % (self.rev, self.repo))
-        self.dump_zip_upload(self._get_svn_dump_args(self.rev, self.rev), self._get_aws_cp_args(self.rev))
+        self.dump_zip_upload(self._get_svn_dump_args(self.rev, self.rev), self.rev)
 
 
-    def dump_zip_upload(self, dump_args, aws_args):
+    def dump_zip_upload(self, dump_args, rev):
         gz = '/bin/gzip'
         gz_args = [gz]
 
@@ -163,7 +164,8 @@ class Job(object):
         p2 = subprocess.Popen((gz_args), stdin=p1.stdout, stdout=subprocess.PIPE)
         p1.stdout.close()
         # Upload zip.stdout to s3
-        output = subprocess.check_output((aws_args), stdin=p2.stdout)
+        s3client.upload_fileobj(p2.stdout, BUCKET, self.get_key(rev))
+        #output = subprocess.check_output((aws_args), stdin=p2.stdout)
         #TODO: Do we need to close stuff?
         p2.communicate()[0]
 
@@ -236,7 +238,7 @@ class JobMulti(Job):
         to_rev = str(((int(shard / self.shard_div) + 1) * self.shard_div) - 1)
 
         svn_args = self._get_svn_dump_args(start_rev, to_rev)
-        self.dump_zip_upload(svn_args, self._get_aws_cp_args(start_rev))
+        self.dump_zip_upload(svn_args, start_rev)
 
 
 class BigDoEverythingClasss(object):
