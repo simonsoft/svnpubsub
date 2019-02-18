@@ -78,7 +78,7 @@ class Job(object):
         self.rev = rev
         self.head = head
         self.env = {'LANG': 'en_US.UTF-8', 'LC_ALL': 'en_US.UTF-8'}
-        self.shard_type = 'shard0'
+        self.shard_size = 'shard0'
 
     def get_key(self, rev):
         #/v1/Cloudid/reponame/shardX/0000001000/reponame-0000001000.svndump.gz
@@ -100,7 +100,7 @@ class Job(object):
 
         version = 'v1'
         # v1/CLOUDID/demo1/shard0/0000000000
-        return '%s/%s/%s/%s/%s' % (version, CLOUDID, self.repo, self.shard_type, shard_number)
+        return '%s/%s/%s/%s/%s' % (version, CLOUDID, self.repo, self.shard_size, shard_number)
 
     def _get_svn_dump_args(self, from_rev, to_rev):
         path = '%s/%s' % (SVNROOT, self.repo)
@@ -171,12 +171,28 @@ class Job(object):
 # 2. One repo at the time, repos spcified in history option
 class JobMulti(Job):
 
-    def __init__(self, repo):
-        self.shard_type = 'shard3'
+    def __init__(self, repo, shard_size):
+        self.shard_size = shard_size
         self.env = {'LANG': 'en_US.UTF-8', 'LC_ALL': 'en_US.UTF-8'}
         self.repo = repo
         self.head = self._get_head(self.repo)
+
+        if shard_size == 'shard3':
+            self.shard_div = 1000
+            self.rev_min = 0
+        elif shard_size == 'shard0':
+            self.shard_div = 1
+            self.shard_div_next = 1000 # next larger shard
+            self.rev_min = int(self.head / self.shard_div_next) * self.shard_div_next
+        else:
+            logging.error('Unsupported shard type: %s' % shard_size)
+            raise Exception('Unsupported shard type')
+
+        logging.info('Processing repo %s with head revision %s' % (self.repo, self.head))
         shards = self._get_shards(self.head)
+        self._run(shards)
+
+    def _run(self, shards):
         for shard in shards:
             missing_dump = self._validate_shard(shard)
             if missing_dump:
@@ -204,36 +220,38 @@ class JobMulti(Job):
 
     def _get_shards(self, head):
         shards = []
-        number_of_shards = int(head / 1000)
-        for shard in range(number_of_shards):
-            shards.append(shard)
-
-        return shards
+        number_of_shards = int(head / self.shard_div)
+        # python range excludes second arg from range.
+        # range(0, 2000, 1000) = [0, 1000]
+        # The shard now specifies start rev for the shard.
+        # rev_min has already been floored
+        # Upper limit must be +1 before division (both shard3 and shard0).
+        return range(self.rev_min, int((head + 1) / self.shard_div) * self.shard_div, self.shard_div)
 
     def _validate_shard(self, shard):
-        key = self.get_key(shard*1000)
+        key = self.get_key(shard)
         args = [AWS, 's3api', 'head-object', '--bucket', BUCKET, '--key', key]
 
         pipe = subprocess.Popen((args), stdout=subprocess.PIPE)
         output, errput = pipe.communicate()
 
         if pipe.returncode != 0:
-            logging.info('Shard Key do not exist %s' % key)
+            logging.info('Shard key does not exist: %s' % key)
             return True
         else:
             try:
                 #FUTURE: Parsing response to json. Will allow us to check size. e.g response_body['ContentLength']
                 response_body = json.loads(output)
-                logging.info('Shard key exists %s' % key)
+                logging.debug('Shard key exists: %s' % key)
                 return False
             except ValueError:
-                logging.error('Could not parse response from s3api head-object with key: %s' % key)
-                raise 'Could not parse response from s3api head-object with key: %s' % key
+                logging.error('Unable to parse response from s3api head-object with key: %s' % key)
+                raise 'Unable to parse response from s3api head-object with key: %s' % key
 
     def _backup_shard(self, shard):
         logging.info('Dumping and uploading shard: %s from repo: %s' % (shard, self.repo))
-        start_rev = str(shard) + '000'
-        to_rev = str(shard) + '999'
+        start_rev = str(shard)
+        to_rev = str(((int(shard / self.shard_div) + 1) * self.shard_div) - 1)
 
         svn_args = self._get_svn_dump_args(start_rev, to_rev)
         self.dump_zip_upload(svn_args, self._get_aws_cp_args(start_rev))
@@ -263,7 +281,7 @@ class BigDoEverythingClasss(object):
         excluded = False
         for repo in REPO_EXCLUDES:
             if commit.repositoryname.startswith(repo):
-                logging.info('Commit happend in exlcuded repository, will not procced with backup, repo: %s' % commit.repositoryname)
+                logging.info('Commit in excluded repository, ignoring: %s' % commit.repositoryname)
                 excluded = True
 
         if not excluded:
@@ -490,6 +508,8 @@ def main(args):
                     help='set this (octal) umask before running')
     parser.add_option('--history',
                     help='Will dump and backup all repositories within shard3 ranges (even thousands) e.g --history reponame')
+    parser.add_option('--shardsize', default='shard3',
+                    help='Shard size used by --history. Assumes that shard3 is executed before shard0.')
     parser.add_option('--aws',
                     help='path to aws executable e.g /usr/bin/aws')
     parser.add_option('--svnadmin',
@@ -511,7 +531,7 @@ def main(args):
     handle_options(options)
 
     if options.history:
-        JobMulti(options.history)
+        JobMulti(options.history, options.shardsize)
     else:
         if options.daemon and not options.logfile:
             parser.error('LOGFILE is required when running as a daemon')
