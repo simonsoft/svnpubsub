@@ -26,6 +26,7 @@
 # On startup SvnDumpSub starts listening to commits in all repositories.
 #
 
+from io import BytesIO
 import subprocess
 import threading
 import sys
@@ -239,6 +240,83 @@ class JobMulti(Job):
 
         svn_args = self._get_svn_dump_args(start_rev, to_rev)
         self.dump_zip_upload(svn_args, start_rev)
+
+
+class JobMultiLoad(JobMulti):
+    def __init__(self, repo):
+        self.shard_size = shard_size
+        self.env = {'LANG': 'en_US.UTF-8', 'LC_ALL': 'en_US.UTF-8'}
+        self.repo = repo
+        self.head = self._get_head(self.repo)
+        if self.head == 0:
+            # Empty repository is a special case because the current head rev can be loaded.
+            self.rev_min = 0
+        else
+            self.rev_min = self.head + 1
+
+        logging.info('Processing repo %s with head revision %s' % (self.repo, self.head))
+        # First process large shards if local head is divisible with shard size.
+        if self.rev_min % 1000 == 0:
+            self.shard_size == 'shard3'
+            self.shard_div = 1000
+            shards = self._get_shards(self.rev_min + 1000 * self.shard_div)
+            self._run(shards)
+
+
+        # Refresh head after potentially loading large dumps.
+        self.head = self._get_head(self.repo)
+        if self.head == 0:
+            # Empty repository is a special case because the current head rev can be loaded.
+            self.rev_min = 0
+        else
+            self.rev_min = self.head + 1
+
+        # Then look for single revision dumps.
+        self.shard_size == 'shard0'
+        self.shard_div = 1
+
+        shards = self._get_shards(self.rev_min + 1000 * self.shard_div)
+        self._run(shards)
+
+    def _run(self, shards):
+        for shard in shards:
+            dump_exists = self._validate_shard(shard)
+            if dump_exists:
+                logging.info('Shard exists, will load shard %s' % shard)
+                self._load_shard(shard)
+            else
+                logging.info('Shard does not exist, done for now - %s' % shard)
+                break
+        logging.warning('Maximum number of shards processed, terminating.')
+        # Restart or raise the maximum number of shards.
+        raise Exception('Maximum number of shards processed')
+
+
+    def _load_shard(self, shard):
+        logging.info('Loading shard: %s from repo: %s' % (shard, self.repo))
+        start_rev = str(shard)
+        to_rev = str(((int(shard / self.shard_div) + 1) * self.shard_div) - 1)
+
+        logging.info('Loading shard %s' % shard)
+        #self.load_zip(svn_args, start_rev)
+
+
+    def load_zip(self, rev):
+        gz = '/bin/gunzip'
+        gz_args = [gz, '-c']
+
+        # Memory buffer for now.
+        # TODO: Likely need temp file for large shards.
+        fp = BytesIO()
+        # Download from s3
+        s3client.download_fileobj(BUCKET, self.get_key(rev), fp)
+        # gunzip
+        p1 = subprocess.Popen((gz_args), stdin=fp, stdout=subprocess.PIPE, env=self.env)
+        # svnadmin load
+        p2 = subprocess.Popen((load_args), stdin=p1.stdout)
+
+        #TODO: Do we need to close stuff?
+        p2.communicate()[0]
 
 
 class BigDoEverythingClasss(object):
@@ -491,9 +569,11 @@ def main(args):
     parser.add_option('--umask',
                     help='set this (octal) umask before running')
     parser.add_option('--history',
-                    help='Will dump and backup all repositories within shard3 ranges (even thousands) e.g --history reponame')
+                    help='Will dump and backup repository in shard3 ranges (even thousands), e.g --history reponame')
     parser.add_option('--shardsize', default='shard3',
                     help='Shard size used by --history. Assumes that shard3 is executed before shard0.')
+    parser.add_option('--load',
+                    help='Will load repository from shards in size order (shard3 then shard0), e.g --load reponame')
     parser.add_option('--aws',
                     help='path to aws executable e.g /usr/bin/aws')
     parser.add_option('--svnadmin',
@@ -516,6 +596,8 @@ def main(args):
 
     if options.history:
         JobMulti(options.history, options.shardsize)
+    elif options.load:
+        JobMultiLoad(options.load)
     else:
         if options.daemon and not options.logfile:
             parser.error('LOGFILE is required when running as a daemon')
