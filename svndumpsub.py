@@ -311,6 +311,8 @@ class JobMultiLoad(JobMulti):
 
 
     def load_zip(self, rev):
+        shard_key = self.get_key(rev)
+
         gz = '/bin/gunzip'
         gz_args = [gz, '-c']
 
@@ -319,11 +321,11 @@ class JobMultiLoad(JobMulti):
 
         # Temporary file
         # TODO: Use specific tmp dir.
-        prefix = '%s_%s' % (self.repo, rev)
+        prefix = '%s_%s_' % (self.repo, rev)
         fp = tempfile.NamedTemporaryFile(prefix=prefix, suffix='.svndump.gz', delete=True)
         logging.debug('Downloading shard to temporary file: %s', fp.name)
         # Download from s3
-        s3client.download_fileobj(BUCKET, self.get_key(rev), fp)
+        s3client.download_fileobj(BUCKET, shard_key, fp)
         # gunzip
         p1 = subprocess.Popen((gz_args), stdin=fp, stdout=subprocess.PIPE, env=self.env)
         # svnadmin load
@@ -336,6 +338,10 @@ class JobMultiLoad(JobMulti):
 
         # Closing tmp file should delete it.
         fp.close()
+
+        if p2.returncode != 0:
+            logging.error('Loading shard failed (%s): %s', p2.returncode, shard_key)
+            raise Exception('Loading shard failed')
 
 
 class BigDoEverythingClasss(object):
