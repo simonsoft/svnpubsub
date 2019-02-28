@@ -205,6 +205,13 @@ class JobMulti(Job):
 
     def _get_head(self, repo):
 
+        path = '%s/%s' % (SVNROOT, repo)
+
+        # While using fs we can check that repo exists and provide a better error message.
+        if not os.path.isdir(path):
+            logging.error('Repository does not exist: %s' % repo)
+            raise Exception('Repository does not exist')
+
         # Considered using svn to enable rdump in the future.
         #fqdn = socket.getfqdn()
         #url = 'http://%s/svn/%s' % (fqdn, repo)
@@ -212,7 +219,6 @@ class JobMulti(Job):
         #args = [SVN, 'info', url]
         #grep_args = ['/bin/grep', 'Revision:']
 
-        path = '%s/%s' % (SVNROOT, repo)
         args = [SVNLOOK, 'youngest', path]
         grep_args = ['/bin/grep', '^[0-9]\+']
 
@@ -244,20 +250,20 @@ class JobMulti(Job):
 
 class JobMultiLoad(JobMulti):
     def __init__(self, repo):
-        self.shard_size = shard_size
+        self.shard_size = ''
         self.env = {'LANG': 'en_US.UTF-8', 'LC_ALL': 'en_US.UTF-8'}
         self.repo = repo
         self.head = self._get_head(self.repo)
         if self.head == 0:
             # Empty repository is a special case because the current head rev can be loaded.
             self.rev_min = 0
-        else
+        else:
             self.rev_min = self.head + 1
 
         logging.info('Processing repo %s with head revision %s' % (self.repo, self.head))
         # First process large shards if local head is divisible with shard size.
         if self.rev_min % 1000 == 0:
-            self.shard_size == 'shard3'
+            self.shard_size = 'shard3'
             self.shard_div = 1000
             shards = self._get_shards(self.rev_min + 1000 * self.shard_div)
             self._run(shards)
@@ -268,28 +274,30 @@ class JobMultiLoad(JobMulti):
         if self.head == 0:
             # Empty repository is a special case because the current head rev can be loaded.
             self.rev_min = 0
-        else
+        else:
             self.rev_min = self.head + 1
 
         # Then look for single revision dumps.
-        self.shard_size == 'shard0'
+        self.shard_size = 'shard0'
         self.shard_div = 1
 
-        shards = self._get_shards(self.rev_min + 1000 * self.shard_div)
+        shards = self._get_shards(self.rev_min + 999)
         self._run(shards)
 
     def _run(self, shards):
+        logging.info('Shards length %s' % len(shards))
         for shard in shards:
             dump_exists = self._validate_shard(shard)
             if dump_exists:
                 logging.info('Shard exists, will load shard %s' % shard)
                 self._load_shard(shard)
-            else
+                continue
+            else:
                 logging.info('Shard does not exist, done for now - %s' % shard)
                 break
-        logging.warning('Maximum number of shards processed, terminating.')
-        # Restart or raise the maximum number of shards.
-        raise Exception('Maximum number of shards processed')
+            logging.warning('Maximum number of shards processed, terminating.')
+            # Restart or raise the maximum number of shards.
+            raise Exception('Maximum number of shards processed')
 
 
     def _load_shard(self, shard):
