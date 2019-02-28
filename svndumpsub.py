@@ -326,6 +326,7 @@ class JobMultiLoad(JobMulti):
         logging.debug('Downloading shard to temporary file: %s', fp.name)
         # Download from s3
         s3client.download_fileobj(BUCKET, shard_key, fp)
+        fp.seek(0)
         # gunzip
         p1 = subprocess.Popen((gz_args), stdin=fp, stdout=subprocess.PIPE, env=self.env)
         # svnadmin load
