@@ -157,6 +157,8 @@ class Job(object):
 
 
     def dump_zip_upload(self, dump_args, rev):
+        shard_key = self.get_key(rev)
+
         gz = '/bin/gzip'
         gz_args = [gz]
 
@@ -166,10 +168,13 @@ class Job(object):
         p2 = subprocess.Popen((gz_args), stdin=p1.stdout, stdout=subprocess.PIPE)
         p1.stdout.close()
         # Upload zip.stdout to s3
-        s3client.upload_fileobj(p2.stdout, BUCKET, self.get_key(rev))
-        #output = subprocess.check_output((aws_args), stdin=p2.stdout)
+        s3client.upload_fileobj(p2.stdout, BUCKET, shard_key)
         #TODO: Do we need to close stuff?
         p2.communicate()[0]
+
+        if p2.returncode != 0:
+            logging.error('Dumping shard failed (rc=%s): %s', p2.returncode, shard_key)
+            raise Exception('Dumping shard failed')
 
 
 # 1. Always go for all repos and exclude repos in history option
@@ -341,9 +346,11 @@ class JobMultiLoad(JobMulti):
         fp.close()
 
         if p2.returncode != 0:
-            logging.error('Loading shard failed (%s): %s', p2.returncode, shard_key)
+            logging.error('Loading shard failed (rc=%s): %s', p2.returncode, shard_key)
             raise Exception('Loading shard failed')
 
+        # TODO Analyze output, should conclude with (ensure revision is correct for shard):
+        # ------- Committed revision 4999 >>>
 
 class BigDoEverythingClasss(object):
     #removed the config object from __init__.
