@@ -32,6 +32,7 @@ import threading
 import sys
 import stat
 import os
+import tempfile
 import re
 import json
 import socket
@@ -306,16 +307,21 @@ class JobMultiLoad(JobMulti):
         to_rev = str(((int(shard / self.shard_div) + 1) * self.shard_div) - 1)
 
         logging.info('Loading shard %s' % shard)
-        #self.load_zip(svn_args, start_rev)
+        self.load_zip(start_rev)
 
 
     def load_zip(self, rev):
         gz = '/bin/gunzip'
         gz_args = [gz, '-c']
 
-        # Memory buffer for now.
-        # TODO: Likely need temp file for large shards.
-        fp = BytesIO()
+        path = '%s/%s' % (SVNROOT, self.repo)
+        load_args = [SVNADMIN, 'load', path]
+
+        # Temporary file
+        # TODO: Use specific tmp dir.
+        prefix = '%s_%s' % (self.repo, rev)
+        fp = tempfile.NamedTemporaryFile(prefix=prefix, suffix='.svndump.gz', delete=True)
+        logging.debug('Downloading shard to temporary file: %s', fp.name)
         # Download from s3
         s3client.download_fileobj(BUCKET, self.get_key(rev), fp)
         # gunzip
@@ -325,6 +331,11 @@ class JobMultiLoad(JobMulti):
 
         #TODO: Do we need to close stuff?
         p2.communicate()[0]
+        logging.debug('Load return code: %s', p2.returncode)
+        logging.debug('Gunzip return code: %s', p1.returncode)
+
+        # Closing tmp file should delete it.
+        fp.close()
 
 
 class BigDoEverythingClasss(object):
