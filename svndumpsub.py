@@ -164,9 +164,9 @@ class Job(object):
 
         # Svn admin dump
         p1 = subprocess.Popen((dump_args), stdout=subprocess.PIPE, env=self.env)
-        # Zip stout
+        # Zip stdout
         p2 = subprocess.Popen((gz_args), stdin=p1.stdout, stdout=subprocess.PIPE)
-        p1.stdout.close()
+        p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
         # Upload zip.stdout to s3
         s3client.upload_fileobj(p2.stdout, BUCKET, shard_key)
         #TODO: Do we need to close stuff?
@@ -335,12 +335,12 @@ class JobMultiLoad(JobMulti):
         # gunzip
         p1 = subprocess.Popen((gz_args), stdin=fp, stdout=subprocess.PIPE, env=self.env)
         # svnadmin load
-        p2 = subprocess.Popen((load_args), stdin=p1.stdout)
-
+        p2 = subprocess.Popen((load_args), stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=self.env)
+        p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
         #TODO: Do we need to close stuff?
         p2.communicate()[0]
         logging.debug('Load return code: %s', p2.returncode)
-        logging.debug('Gunzip return code: %s', p1.returncode)
+        #logging.debug('Gunzip return code: %s', p1.returncode)
 
         # Closing tmp file should delete it.
         fp.close()
