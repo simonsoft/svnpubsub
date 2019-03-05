@@ -359,7 +359,7 @@ class BigDoEverythingClasss(object):
 
         self.hook = None
         self.svnbin = SVNADMIN;
-        self.worker = BackgroundWorker(self.svnbin, self.env, self.hook)
+        self.worker = BackgroundWorker(self.svnbin, self.hook)
         self.watch = [ ]
 
     def start(self):
@@ -387,7 +387,7 @@ class BigDoEverythingClasss(object):
 BACKLOG_TOO_HIGH = 500
 
 class BackgroundWorker(threading.Thread):
-    def __init__(self, svnbin, env, hook):
+    def __init__(self, svnbin, hook):
         threading.Thread.__init__(self)
 
         # The main thread/process should not wait for this thread to exit.
@@ -395,7 +395,6 @@ class BackgroundWorker(threading.Thread):
         self.setDaemon(True)
 
         self.svnbin = svnbin
-        self.env = env
         self.hook = hook
         self.q = Queue.PriorityQueue()
 
