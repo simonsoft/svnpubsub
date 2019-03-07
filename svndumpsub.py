@@ -171,10 +171,15 @@ class Job(object):
         s3client.upload_fileobj(p2.stdout, BUCKET, shard_key)
         #TODO: Do we need to close stuff?
         p2.communicate()[0]
+        p1.poll()
+
+        if p1.returncode != 0:
+            logging.error('Dumping shard failed (rc=%s): %s', p1.returncode, shard_key)
+            raise Exception('Dumping shard failed')
 
         if p2.returncode != 0:
-            logging.error('Dumping shard failed (rc=%s): %s', p2.returncode, shard_key)
-            raise Exception('Dumping shard failed')
+            logging.error('Compressing shard failed (rc=%s): %s', p2.returncode, shard_key)
+            raise Exception('Compressing shard failed')
 
 
 # 1. Always go for all repos and exclude repos in history option
@@ -340,10 +345,15 @@ class JobMultiLoad(JobMulti):
         #TODO: Do we need to close stuff?
         p2.communicate()[0]
         logging.debug('Load return code: %s', p2.returncode)
-        #logging.debug('Gunzip return code: %s', p1.returncode)
+        p1.poll()
+        logging.debug('Gunzip return code: %s', p1.returncode)
 
         # Closing tmp file should delete it.
         fp.close()
+
+        if p1.returncode != 0:
+            logging.error('Decompressing shard failed (rc=%s): %s', p1.returncode, shard_key)
+            raise Exception('Decompressing shard failed')
 
         if p2.returncode != 0:
             logging.error('Loading shard failed (rc=%s): %s', p2.returncode, shard_key)
