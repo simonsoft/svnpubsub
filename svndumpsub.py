@@ -182,8 +182,7 @@ class Job(object):
             raise Exception('Compressing shard failed')
 
 
-# 1. Always go for all repos and exclude repos in history option
-# 2. One repo at the time, repos spcified in history option
+# Processing one repo, specified in history option
 class JobMulti(Job):
 
     def __init__(self, repo, shard_size):
