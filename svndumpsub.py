@@ -198,6 +198,10 @@ class JobMulti(Job):
             self.shard_div = 1
             self.shard_div_next = 1000 # next larger shard
             self.rev_min = int(self.head / self.shard_div_next) * self.shard_div_next
+            # shard0 revisions might be skipped when using only --history without svnpubsub
+            # revision will be dumped in shard3 but can be a problem for slave servers loading single revisions
+            if self.rev_min != 0:
+                self.rev_min = self.rev_min - 100
         else:
             logging.error('Unsupported shard type: %s' % shard_size)
             raise Exception('Unsupported shard type')
