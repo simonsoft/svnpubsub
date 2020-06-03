@@ -24,7 +24,7 @@
 import sys
 import pprint
 try:
-  import urlparse
+  import urllib.parse
 except ImportError:
   import urllib.parse as urlparse
 

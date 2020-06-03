@@ -47,7 +47,7 @@ try:
   from urllib.parse import urlparse
 except ImportError:
   # Python <3.0
-  from urlparse import urlparse
+  from urllib.parse import urlparse
 
 import time
 import posixpath
@@ -206,7 +206,7 @@ class BigDoEverythingClasss(object):
     def build_tweet(self, commit):
         maxlen = 144
         left = maxlen
-        paths = map(self._normalize_path, commit.changed)
+        paths = list(map(self._normalize_path, commit.changed))
         if not len(paths):
             return None
         path = posixpath.commonprefix(paths)

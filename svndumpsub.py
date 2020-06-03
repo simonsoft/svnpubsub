@@ -39,7 +39,7 @@ import socket
 import boto3
 import logging.handlers
 try:
-  import Queue
+  import queue
 except ImportError:
   import queue as Queue
 
@@ -239,7 +239,7 @@ class JobMulti(Job):
         p1 = subprocess.Popen((args), stdout=subprocess.PIPE)
         output = subprocess.check_output((grep_args), stdin=p1.stdout)
 
-        rev = int(filter(str.isdigit, output))
+        rev = int(list(filter(str.isdigit, output)))
         return rev
 
     def _get_shards(self, head):
@@ -250,7 +250,7 @@ class JobMulti(Job):
         # The shard now specifies start rev for the shard.
         # rev_min has already been floored
         # Upper limit must be +1 before division (both shard3 and shard0).
-        return range(self.rev_min, int((head + 1) / self.shard_div) * self.shard_div, self.shard_div)
+        return list(range(self.rev_min, int((head + 1) / self.shard_div) * self.shard_div, self.shard_div))
 
 
     def _backup_shard(self, shard):
@@ -409,7 +409,7 @@ class BackgroundWorker(threading.Thread):
 
         self.svnbin = svnbin
         self.hook = hook
-        self.q = Queue.PriorityQueue()
+        self.q = queue.PriorityQueue()
 
         self.has_started = False
 
