@@ -99,7 +99,7 @@ def main(repo, revision):
             'date': i['date'],
             }
     data['changed'].update(svnlook_changed(repo, revision))
-    body = json.dumps(data)
+    body = str.encode(json.dumps(data))
     do_put(body)
     do_post_commit_webapp(body)
 
