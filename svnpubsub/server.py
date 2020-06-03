@@ -260,12 +260,12 @@ class SvnPubSub(resource.Resource):
         uri_len = len(uri)
         if uri_len < 2 or uri_len > 4:
             request.setResponseCode(400)
-            return "Invalid path\n"
+            return b"Invalid path\n"
 
         kind = self.__notification_uri_map.get(uri[1], None)
         if kind is None:
             request.setResponseCode(400)
-            return "Invalid path\n"
+            return b"Invalid path\n"
 
         if uri_len >= 3:
           type = uri[2]
