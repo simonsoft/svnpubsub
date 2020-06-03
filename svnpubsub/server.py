@@ -256,7 +256,7 @@ class SvnPubSub(resource.Resource):
         repository = None
         type = None
 
-        uri = request.uri.split('/')
+        uri = request.uri.split(b'/')
         uri_len = len(uri)
         if uri_len < 2 or uri_len > 4:
             request.setResponseCode(400)
