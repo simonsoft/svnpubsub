@@ -76,7 +76,7 @@ class HTTPStream(HTTPClientFactory):
     protocol = HTTPPageDownloader
 
     def __init__(self, url):
-        HTTPClientFactory.__init__(self, url, method="GET", agent="SvnTweet/0.1.0")
+        HTTPClientFactory.__init__(self, url, method=b"GET", agent=b"SvnTweet/0.1.0")
 
     def pageStart(self, partial):
         pass

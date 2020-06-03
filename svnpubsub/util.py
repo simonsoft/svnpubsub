@@ -32,5 +32,5 @@ except AttributeError:
                                   universal_newlines=universal_newlines)
         output, _ = pipe.communicate()
         if pipe.returncode:
-            raise subprocess.CalledProcessError(pipe.returncode, args)
+            raise __subprocess.CalledProcessError(pipe.returncode, args)
         return output

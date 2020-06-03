@@ -237,7 +237,7 @@ class SvnPubSub(resource.Resource):
                               'metadata': Metadata.KIND}
 
     def __init__(self, notification_class):
-        resource.Resource.__init__(self)
+        super().__init__()
         self.__notification_class = notification_class
 
     def cc(self):
@@ -320,8 +320,8 @@ def svnpubsub_server():
     root = resource.Resource()
     c = SvnPubSub(Commit)
     m = SvnPubSub(Metadata)
-    root.putChild('commits', c)
-    root.putChild('metadata', m)
+    root.putChild(b'commits', c)
+    root.putChild(b'metadata', m)
     return server.Site(root)
 
 if __name__ == "__main__":

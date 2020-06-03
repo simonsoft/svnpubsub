@@ -99,7 +99,7 @@ class Job(object):
     def _get_s3_base(self, rev):
 
         # Always using 1000 for folders, can not yet support >shard3.
-        d = int(rev) / 1000;
+        d = int(rev) / 1000
         d = str(int(d)) + '000'
         shard_number = d.zfill(10)
 
@@ -239,7 +239,7 @@ class JobMulti(Job):
         p1 = subprocess.Popen((args), stdout=subprocess.PIPE)
         output = subprocess.check_output((grep_args), stdin=p1.stdout)
 
-        rev = int(list(filter(str.isdigit, output)))
+        rev = int(next(filter(str.isdigit, output.decode("utf-8"))))
         return rev
 
     def _get_shards(self, head):
@@ -371,7 +371,7 @@ class BigDoEverythingClasss(object):
         self.streams = ["http://%s:%d/commits" %(HOST, PORT)]
 
         self.hook = None
-        self.svnbin = SVNADMIN;
+        self.svnbin = SVNADMIN
         self.worker = BackgroundWorker(self.svnbin, self.hook)
         self.watch = [ ]
 
@@ -571,7 +571,7 @@ def handle_options(options):
             pass
         fd = os.open(options.pidfile, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
                      stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
-        os.write(fd, '%d\n' % pid)
+        os.write(fd, b'%d\n' % pid)
         os.close(fd)
         logging.info('pid %d written to %s', pid, options.pidfile)
 

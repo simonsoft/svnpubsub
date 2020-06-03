@@ -182,7 +182,7 @@ class Daemon(object):
           pass
         fd = os.open(self.pidfile, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
                      stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
-        os.write(fd, '%d\n' % pid)
+        os.write(fd, b'%d\n' % pid)
         os.close(fd)
 
       ### this return value is ignored

@@ -375,7 +375,7 @@ class ReloadableConfig(configparser.SafeConfigParser):
             self.remove_section(section)
 
         # Now re-read the configuration file.
-        self.read(fname)
+        self.read(self.fname)
 
     def get_value(self, which):
         return self.get(configparser.DEFAULTSECT, which)
@@ -484,7 +484,7 @@ def handle_options(options):
             pass
         fd = os.open(options.pidfile, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
                      stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
-        os.write(fd, '%d\n' % pid)
+        os.write(fd, b'%d\n' % pid)
         os.close(fd)
         logging.info('pid %d written to %s', pid, options.pidfile)
 
