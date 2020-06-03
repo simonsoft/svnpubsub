@@ -23,7 +23,7 @@ SVNLOOK="/usr/bin/svnlook"
 HOST="127.0.0.1"
 PORT=2069
 
-import sys
+import sys, base64
 try:
     import simplejson as json
 except ImportError:
@@ -67,16 +67,33 @@ def do_put(body):
     request.add_header('Content-Type', 'application/json')
     request.get_method = lambda: 'PUT'
     url = opener.open(request)
-
+    
+def do_post_commit_webapp(body):
+    #Just a bogus auth, the webapp assumes user is already approved by apache.
+    username = "postcommit"
+    password = "password"
+    base64Auth = base64.encodestring('%s:%s' %(username, password)).replace('\n', '')
+    
+    path = "cms/rest/hook/postcommit"
+    port_webapp = 8080
+    
+    opener = urllib2.build_opener(urllib2.HTTPHandler)
+    request = urllib2.Request("http://%s:%d/%s" %(HOST, port_webapp, path), data=body)
+    request.add_header('Content-Type', 'application/json')
+    request.add_header("Authorization", "Basic %s" % base64Auth)
+    request.get_method = lambda: 'PUT'
+    url = opener.open(request)
 
 def main(repo, revision):
     revision = revision.lstrip('r')
     i = svnlook_info(repo, revision)
+    lastSlashIndex = repo.rindex("/")
     data = {'type': 'svn',
             'format': 1,
             'id': int(revision),
             'changed': {},
             'repository': svnlook_uuid(repo),
+            'repositoryname': repo[lastSlashIndex + 1:],
             'committer': i['author'],
             'log': i['log'],
             'date': i['date'],
@@ -84,6 +101,7 @@ def main(repo, revision):
     data['changed'].update(svnlook_changed(repo, revision))
     body = json.dumps(data)
     do_put(body)
+    do_post_commit_webapp(body)
 
 if __name__ == "__main__":
     if len(sys.argv) not in (3, 4):
