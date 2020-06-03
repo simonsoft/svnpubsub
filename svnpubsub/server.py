@@ -246,6 +246,7 @@ class SvnPubSub(resource.Resource):
         self.clients.remove(c)
 
     def render_GET(self, request):
+        # https://twistedmatrix.com/documents/8.1.0/api/twisted.web.http.Request.html
         log.msg("REQUEST: %s"  % (request.uri))
         request.setHeader('content-type', 'text/plain') # TODO Remove?
         accept = request.getHeader('Accept')
@@ -255,6 +256,8 @@ class SvnPubSub(resource.Resource):
         repository = None
         type = None
 
+        # type is the first part of the path, typically 'commits' (mandatory)
+        # repository is the second part of the path (optional)
         uri = request.uri.decode("utf-8").split('/')
         uri_len = len(uri)
         if uri_len < 2 or uri_len > 4:
