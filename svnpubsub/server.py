@@ -187,9 +187,8 @@ class Client(object):
     def write_notification(self, notification):
         raise NotImplementedError
 
-    """ "Data must not be unicode" is what the interfaces.ITransport says... grr. """
     def write(self, input):
-        self.r.write(str(input))
+        self.r.write(str.encode(input))
 
     def write_start(self):
         raise NotImplementedError
