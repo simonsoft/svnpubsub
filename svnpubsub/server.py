@@ -256,16 +256,16 @@ class SvnPubSub(resource.Resource):
         repository = None
         type = None
 
-        uri = request.uri.split(b'/')
+        uri = request.uri.decode("utf-8").split('/')
         uri_len = len(uri)
         if uri_len < 2 or uri_len > 4:
             request.setResponseCode(400)
-            return b"Invalid path\n"
+            return b"Invalid path length: %d\n" % uri_len
 
         kind = self.__notification_uri_map.get(uri[1], None)
         if kind is None:
             request.setResponseCode(400)
-            return b"Invalid path\n"
+            return b"Invalid path kind: %s\n" % uri[1]
 
         if uri_len >= 3:
           type = uri[2]
