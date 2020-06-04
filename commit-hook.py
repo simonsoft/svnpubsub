@@ -72,7 +72,7 @@ def do_post_commit_webapp(body):
     #Just a bogus auth, the webapp assumes user is already approved by apache.
     username = "postcommit"
     password = "password"
-    base64Auth = base64.encodebytes(b'%s:%s' % (username, password)).replace(b'\n', b'').decode()
+    base64Auth = base64.encodebytes(("%s:%s" % (username, password)).encode()).replace(b'\n', b'').decode()
     
     path = "cms/rest/hook/postcommit"
     port_webapp = 8080
