@@ -63,7 +63,7 @@ def svnlook_changed(repo, revision):
 
 def do_put(body):
     opener = urllib.request.build_opener(urllib.request.HTTPHandler)
-    request = urllib.request.Request("http://%s:%d/commits" %(HOST, PORT), data=body)
+    request = urllib.request.Request("http://%s:%d/commits" % (HOST, PORT), data=body)
     request.add_header('Content-Type', 'application/json')
     request.get_method = lambda: 'PUT'
     url = opener.open(request)
@@ -72,13 +72,13 @@ def do_post_commit_webapp(body):
     #Just a bogus auth, the webapp assumes user is already approved by apache.
     username = "postcommit"
     password = "password"
-    base64Auth = base64.encodestring('%s:%s' %(username, password)).replace('\n', '')
+    base64Auth = base64.encodebytes(b'%s:%s' % (username, password)).replace(b'\n', b'').decode()
     
     path = "cms/rest/hook/postcommit"
     port_webapp = 8080
     
     opener = urllib.request.build_opener(urllib.request.HTTPHandler)
-    request = urllib.request.Request("http://%s:%d/%s" %(HOST, port_webapp, path), data=body)
+    request = urllib.request.Request("http://%s:%d/%s" % (HOST, port_webapp, path), data=body)
     request.add_header('Content-Type', 'application/json')
     request.add_header("Authorization", "Basic %s" % base64Auth)
     request.get_method = lambda: 'PUT'
