@@ -114,7 +114,7 @@ class Commit(Notification):
         obj = {}
         obj.update(self.__dict__)
         # TODO Define an SSE id in preparation for replay support.
-        return "event: commit\ndata: %s\n" % ( json.dumps(obj) )
+        return "event: commit\ndata: %s\n" % json.dumps(obj)
 
     def render_log(self):
         try:
@@ -302,20 +302,20 @@ class SvnPubSub(resource.Resource):
         ip = request.getClientIP()
         if ip != "127.0.0.1":
             request.setResponseCode(401)
-            return "Access Denied"
+            return b"Access Denied"
         input = request.content.read()
         #import pdb;pdb.set_trace()
         #print "input: %s" % (input)
         try:
             data = json.loads(input)
             notification = self.__notification_class(data)
+            self.notifyAll(notification)
+            return b"Ok"
         except ValueError as e:
             request.setResponseCode(400)
             errstr = str(e)
             log.msg("%s: failed due to: %s" % (notification.KIND, errstr))
             return errstr
-        self.notifyAll(notification)
-        return "Ok"
 
 
 def svnpubsub_server():
