@@ -128,9 +128,9 @@ class Job(object):
                 return False
             #logging.info(response)
             return True
-        except:
-            logging.debug('S3 exception')
-            logging.info('Shard key does not exist: %s' % key)
+        except Exception as err:
+            logging.debug("S3 exception: {0}".format(err))
+            logging.info('Shard key does not exist: s3://%s/%s' % (BUCKET, key))
             return False
 
 
