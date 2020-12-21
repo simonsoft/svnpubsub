@@ -239,7 +239,8 @@ class JobMulti(Job):
         p1 = subprocess.Popen((args), stdout=subprocess.PIPE)
         output = subprocess.check_output((grep_args), stdin=p1.stdout)
 
-        rev = int(next(filter(str.isdigit, output.decode("utf-8"))))
+        rev = int(''.join(filter(str.isdigit, output.decode("utf-8"))))
+        logging.info('Repository %s youngest: %s' % (repo, rev))
         return rev
 
     def _get_shards(self, head):
