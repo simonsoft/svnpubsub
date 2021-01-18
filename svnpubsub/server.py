@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -114,7 +114,7 @@ class Commit(Notification):
         obj = {}
         obj.update(self.__dict__)
         # TODO Define an SSE id in preparation for replay support.
-        return "event: commit\ndata: %s\n" % ( json.dumps(obj) )
+        return "event: commit\ndata: %s\n" % json.dumps(obj)
 
     def render_log(self):
         try:
@@ -187,9 +187,8 @@ class Client(object):
     def write_notification(self, notification):
         raise NotImplementedError
 
-    """ "Data must not be unicode" is what the interfaces.ITransport says... grr. """
     def write(self, input):
-        self.r.write(str(input))
+        self.r.write(str.encode(input))
 
     def write_start(self):
         raise NotImplementedError
@@ -237,7 +236,7 @@ class SvnPubSub(resource.Resource):
                               'metadata': Metadata.KIND}
 
     def __init__(self, notification_class):
-        resource.Resource.__init__(self)
+        super().__init__()
         self.__notification_class = notification_class
 
     def cc(self):
@@ -247,6 +246,7 @@ class SvnPubSub(resource.Resource):
         self.clients.remove(c)
 
     def render_GET(self, request):
+        # https://twistedmatrix.com/documents/8.1.0/api/twisted.web.http.Request.html
         log.msg("REQUEST: %s"  % (request.uri))
         request.setHeader('content-type', 'text/plain') # TODO Remove?
         accept = request.getHeader('Accept')
@@ -256,16 +256,18 @@ class SvnPubSub(resource.Resource):
         repository = None
         type = None
 
-        uri = request.uri.split('/')
+        # type is the first part of the path, typically 'commits' (mandatory)
+        # repository is the second part of the path (optional)
+        uri = request.uri.decode("utf-8").split('/')
         uri_len = len(uri)
         if uri_len < 2 or uri_len > 4:
             request.setResponseCode(400)
-            return "Invalid path\n"
+            return b"Invalid path length: %d\n" % uri_len
 
         kind = self.__notification_uri_map.get(uri[1], None)
         if kind is None:
             request.setResponseCode(400)
-            return "Invalid path\n"
+            return b"Invalid path kind: %s\n" % uri[1]
 
         if uri_len >= 3:
           type = uri[2]
@@ -300,28 +302,28 @@ class SvnPubSub(resource.Resource):
         ip = request.getClientIP()
         if ip != "127.0.0.1":
             request.setResponseCode(401)
-            return "Access Denied"
+            return b"Access Denied"
         input = request.content.read()
         #import pdb;pdb.set_trace()
         #print "input: %s" % (input)
         try:
             data = json.loads(input)
             notification = self.__notification_class(data)
+            self.notifyAll(notification)
+            return b"Ok"
         except ValueError as e:
             request.setResponseCode(400)
             errstr = str(e)
             log.msg("%s: failed due to: %s" % (notification.KIND, errstr))
             return errstr
-        self.notifyAll(notification)
-        return "Ok"
 
 
 def svnpubsub_server():
     root = resource.Resource()
     c = SvnPubSub(Commit)
     m = SvnPubSub(Metadata)
-    root.putChild('commits', c)
-    root.putChild('metadata', m)
+    root.putChild(b'commits', c)
+    root.putChild(b'metadata', m)
     return server.Site(root)
 
 if __name__ == "__main__":

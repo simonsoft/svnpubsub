@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -29,7 +29,7 @@ try:
 except ImportError:
     import json
 
-import urllib2
+import urllib.request, urllib.error, urllib.parse
 
 import svnpubsub.util
 
@@ -62,8 +62,8 @@ def svnlook_changed(repo, revision):
     return changed
 
 def do_put(body):
-    opener = urllib2.build_opener(urllib2.HTTPHandler)
-    request = urllib2.Request("http://%s:%d/commits" %(HOST, PORT), data=body)
+    opener = urllib.request.build_opener(urllib.request.HTTPHandler)
+    request = urllib.request.Request("http://%s:%d/commits" % (HOST, PORT), data=body)
     request.add_header('Content-Type', 'application/json')
     request.get_method = lambda: 'PUT'
     url = opener.open(request)
@@ -72,13 +72,13 @@ def do_post_commit_webapp(body):
     #Just a bogus auth, the webapp assumes user is already approved by apache.
     username = "postcommit"
     password = "password"
-    base64Auth = base64.encodestring('%s:%s' %(username, password)).replace('\n', '')
+    base64Auth = base64.encodebytes(("%s:%s" % (username, password)).encode()).replace(b'\n', b'').decode()
     
     path = "cms/rest/hook/postcommit"
     port_webapp = 8080
     
-    opener = urllib2.build_opener(urllib2.HTTPHandler)
-    request = urllib2.Request("http://%s:%d/%s" %(HOST, port_webapp, path), data=body)
+    opener = urllib.request.build_opener(urllib.request.HTTPHandler)
+    request = urllib.request.Request("http://%s:%d/%s" % (HOST, port_webapp, path), data=body)
     request.add_header('Content-Type', 'application/json')
     request.add_header("Authorization", "Basic %s" % base64Auth)
     request.get_method = lambda: 'PUT'
@@ -99,7 +99,7 @@ def main(repo, revision):
             'date': i['date'],
             }
     data['changed'].update(svnlook_changed(repo, revision))
-    body = json.dumps(data)
+    body = str.encode(json.dumps(data))
     do_put(body)
     do_post_commit_webapp(body)
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -28,7 +28,7 @@ try:
 except ImportError:
     import json
 
-import urllib2
+import urllib.request, urllib.error, urllib.parse
 
 
 import svnpubsub.util
@@ -48,8 +48,8 @@ def svnlook_revprop(repo, revision, propname):
     return data
 
 def do_put(body):
-    opener = urllib2.build_opener(urllib2.HTTPHandler)
-    request = urllib2.Request("http://%s:%d/metadata" %(HOST, PORT), data=body)
+    opener = urllib.request.build_opener(urllib.request.HTTPHandler)
+    request = urllib.request.Request("http://%s:%d/metadata" %(HOST, PORT), data=body)
     request.add_header('Content-Type', 'application/json')
     request.get_method = lambda: 'PUT'
     url = opener.open(request)

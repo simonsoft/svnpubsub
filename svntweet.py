@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -47,7 +47,7 @@ try:
   from urllib.parse import urlparse
 except ImportError:
   # Python <3.0
-  from urlparse import urlparse
+  from urllib.parse import urlparse
 
 import time
 import posixpath
@@ -76,7 +76,7 @@ class HTTPStream(HTTPClientFactory):
     protocol = HTTPPageDownloader
 
     def __init__(self, url):
-        HTTPClientFactory.__init__(self, url, method="GET", agent="SvnTweet/0.1.0")
+        HTTPClientFactory.__init__(self, url, method=b"GET", agent=b"SvnTweet/0.1.0")
 
     def pageStart(self, partial):
         pass
@@ -206,7 +206,7 @@ class BigDoEverythingClasss(object):
     def build_tweet(self, commit):
         maxlen = 144
         left = maxlen
-        paths = map(self._normalize_path, commit.changed)
+        paths = list(map(self._normalize_path, commit.changed))
         if not len(paths):
             return None
         path = posixpath.commonprefix(paths)

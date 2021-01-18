@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # encoding: UTF-8
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
@@ -52,19 +52,19 @@ import os
 import re
 import posixpath
 try:
-  import ConfigParser
+  import configparser
 except ImportError:
   import configparser as ConfigParser
 import time
 import logging.handlers
 try:
-  import Queue
+  import queue
 except ImportError:
   import queue as Queue
 import optparse
 import functools
 try:
-  import urlparse
+  import urllib.parse
 except ImportError:
   import urllib.parse as urlparse
 
@@ -190,7 +190,7 @@ class BigDoEverythingClasss(object):
         self.watch = [ ]
 
     def start(self):
-        for path, url in self.tracking.items():
+        for path, url in list(self.tracking.items()):
             # working copies auto-register with the BDEC when they are ready.
             WorkingCopy(self, path, url)
 
@@ -214,7 +214,7 @@ class BigDoEverythingClasss(object):
         logging.info("COMMIT r%d (%d paths) from %s"
                      % (commit.id, len(commit.changed), url))
 
-        paths = map(self._normalize_path, commit.changed)
+        paths = list(map(self._normalize_path, commit.changed))
         if len(paths):
             pre = posixpath.commonprefix(paths)
             if pre == "/websites/":
@@ -250,7 +250,7 @@ class BackgroundWorker(threading.Thread):
         self.svnbin = svnbin
         self.env = env
         self.hook = hook
-        self.q = Queue.Queue()
+        self.q = queue.Queue()
 
         self.has_started = False
 
@@ -356,9 +356,9 @@ class BackgroundWorker(threading.Thread):
         check_call(args, env=self.env)
 
 
-class ReloadableConfig(ConfigParser.SafeConfigParser):
+class ReloadableConfig(configparser.SafeConfigParser):
     def __init__(self, fname):
-        ConfigParser.SafeConfigParser.__init__(self)
+        configparser.SafeConfigParser.__init__(self)
 
         self.fname = fname
         self.read(fname)
@@ -375,20 +375,20 @@ class ReloadableConfig(ConfigParser.SafeConfigParser):
             self.remove_section(section)
 
         # Now re-read the configuration file.
-        self.read(fname)
+        self.read(self.fname)
 
     def get_value(self, which):
-        return self.get(ConfigParser.DEFAULTSECT, which)
+        return self.get(configparser.DEFAULTSECT, which)
 
     def get_optional_value(self, which, default=None):
-        if self.has_option(ConfigParser.DEFAULTSECT, which):
-            return self.get(ConfigParser.DEFAULTSECT, which)
+        if self.has_option(configparser.DEFAULTSECT, which):
+            return self.get(configparser.DEFAULTSECT, which)
         else:
             return default
 
     def get_env(self):
         env = os.environ.copy()
-        default_options = self.defaults().keys()
+        default_options = list(self.defaults().keys())
         for name, value in self.items('env'):
             if name not in default_options:
                 env[name] = value
@@ -397,7 +397,7 @@ class ReloadableConfig(ConfigParser.SafeConfigParser):
     def get_track(self):
         "Return the {PATH: URL} dictionary of working copies to track."
         track = dict(self.items('track'))
-        for name in self.defaults().keys():
+        for name in list(self.defaults().keys()):
             del track[name]
         return track
 
@@ -484,7 +484,7 @@ def handle_options(options):
             pass
         fd = os.open(options.pidfile, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
                      stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
-        os.write(fd, '%d\n' % pid)
+        os.write(fd, b'%d\n' % pid)
         os.close(fd)
         logging.info('pid %d written to %s', pid, options.pidfile)
 

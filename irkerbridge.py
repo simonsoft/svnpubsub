@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
@@ -87,7 +87,7 @@ import posixpath
 import socket
 import json
 import optparse
-import ConfigParser
+import configparser
 import traceback
 import signal
 import re
@@ -99,7 +99,7 @@ try:
   from urllib.parse import urlparse
 except ImportError:
   # Python <3.0
-  from urlparse import urlparse
+  from urllib.parse import urlparse
 
 
 # Packages that come with svnpubsub
@@ -168,7 +168,7 @@ class BigDoEverythingClass(object):
   def fill_in_extra_args(self, commit):
     # Set any empty members to the string "<null>"
     v = vars(commit)
-    for k in v.keys():
+    for k in list(v.keys()):
       if not v[k]:
         v[k] = '<null>'
 
@@ -252,9 +252,9 @@ class BigDoEverythingClass(object):
 
 
 
-class ReloadableConfig(ConfigParser.SafeConfigParser):
+class ReloadableConfig(configparser.SafeConfigParser):
   def __init__(self, fname):
-    ConfigParser.SafeConfigParser.__init__(self)
+    configparser.SafeConfigParser.__init__(self)
 
     self.fname = fname
     self.read(fname)
@@ -274,13 +274,13 @@ class ReloadableConfig(ConfigParser.SafeConfigParser):
       self.remove_section(section)
 
     # Get rid of [DEFAULT]
-    self.remove_section(ConfigParser.DEFAULTSECT)
+    self.remove_section(configparser.DEFAULTSECT)
 
     # Now re-read the configuration file.
     self.read(self.fname)
 
   def get_value(self, which):
-    return self.get(ConfigParser.DEFAULTSECT, which)
+    return self.get(configparser.DEFAULTSECT, which)
 
 
 def main(args):

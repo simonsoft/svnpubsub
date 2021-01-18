@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -40,7 +40,7 @@ import functools
 import time
 import json
 try:
-  import urlparse
+  import urllib.parse
 except ImportError:
   import urllib.parse as urlparse
 
@@ -70,7 +70,7 @@ class Client(asynchat.async_chat):
     self.ibuffer = []
 
     self.url = url
-    parsed_url = urlparse.urlsplit(url)
+    parsed_url = urllib.parse.urlsplit(url)
     if parsed_url.scheme != 'http':
       raise ValueError("URL scheme must be http: '%s'" % url)
     host = parsed_url.hostname
@@ -213,7 +213,7 @@ class MultiClient(object):
 
   def _check_stale(self):
     now = time.time()
-    for client in asyncore.socket_map.values():
+    for client in list(asyncore.socket_map.values()):
       if client.last_activity + STALE_DELAY < now:
         # Whoops. No activity in a while. Signal this fact, Close the
         # Client, then have it reconnected later on.

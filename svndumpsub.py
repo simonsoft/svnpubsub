@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # encoding: UTF-8
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
@@ -39,7 +39,7 @@ import socket
 import boto3
 import logging.handlers
 try:
-  import Queue
+  import queue
 except ImportError:
   import queue as Queue
 
@@ -99,7 +99,7 @@ class Job(object):
     def _get_s3_base(self, rev):
 
         # Always using 1000 for folders, can not yet support >shard3.
-        d = int(rev) / 1000;
+        d = int(rev) / 1000
         d = str(int(d)) + '000'
         shard_number = d.zfill(10)
 
@@ -128,9 +128,9 @@ class Job(object):
                 return False
             #logging.info(response)
             return True
-        except:
-            logging.debug('S3 exception')
-            logging.info('Shard key does not exist: %s' % key)
+        except Exception as err:
+            logging.debug("S3 exception: {0}".format(err))
+            logging.info('Shard key does not exist: s3://%s/%s' % (BUCKET, key))
             return False
 
 
@@ -239,7 +239,8 @@ class JobMulti(Job):
         p1 = subprocess.Popen((args), stdout=subprocess.PIPE)
         output = subprocess.check_output((grep_args), stdin=p1.stdout)
 
-        rev = int(filter(str.isdigit, output))
+        rev = int(''.join(filter(str.isdigit, output.decode("utf-8"))))
+        logging.info('Repository %s youngest: %s' % (repo, rev))
         return rev
 
     def _get_shards(self, head):
@@ -250,7 +251,7 @@ class JobMulti(Job):
         # The shard now specifies start rev for the shard.
         # rev_min has already been floored
         # Upper limit must be +1 before division (both shard3 and shard0).
-        return range(self.rev_min, int((head + 1) / self.shard_div) * self.shard_div, self.shard_div)
+        return list(range(self.rev_min, int((head + 1) / self.shard_div) * self.shard_div, self.shard_div))
 
 
     def _backup_shard(self, shard):
@@ -371,7 +372,7 @@ class BigDoEverythingClasss(object):
         self.streams = ["http://%s:%d/commits" %(HOST, PORT)]
 
         self.hook = None
-        self.svnbin = SVNADMIN;
+        self.svnbin = SVNADMIN
         self.worker = BackgroundWorker(self.svnbin, self.hook)
         self.watch = [ ]
 
@@ -409,7 +410,7 @@ class BackgroundWorker(threading.Thread):
 
         self.svnbin = svnbin
         self.hook = hook
-        self.q = Queue.PriorityQueue()
+        self.q = queue.PriorityQueue()
 
         self.has_started = False
 
@@ -571,7 +572,7 @@ def handle_options(options):
             pass
         fd = os.open(options.pidfile, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
                      stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
-        os.write(fd, '%d\n' % pid)
+        os.write(fd, b'%d\n' % pid)
         os.close(fd)
         logging.info('pid %d written to %s', pid, options.pidfile)
 

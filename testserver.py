@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -25,7 +25,7 @@
 #
 
 import sys
-import BaseHTTPServer
+import http.server
 
 
 PORT = 2069
@@ -35,7 +35,7 @@ TEST_BODY = '{"svnpubsub": {"version": 1}}\n\0{"commit": {"type": "svn", "format
 SEND_KEEPALIVE = True
 
 
-class TestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+class TestHandler(http.server.BaseHTTPRequestHandler):
   def do_GET(self):
     self.send_response(200)
     self.send_header('Content-Length', str(len(TEST_BODY)))
@@ -45,6 +45,6 @@ class TestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
 
 if __name__ == '__main__':
-  server = BaseHTTPServer.HTTPServer(('', PORT), TestHandler)
+  server = http.server.HTTPServer(('', PORT), TestHandler)
   sys.stderr.write('Now listening on port %d...\n' % (PORT,))
   server.serve_forever()
