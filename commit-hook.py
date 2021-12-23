@@ -67,20 +67,21 @@ def do_put(body):
     request.add_header('Content-Type', 'application/json')
     request.get_method = lambda: 'PUT'
     url = opener.open(request)
-    
+
 def do_post_commit_webapp(body):
     #Just a bogus auth, the webapp assumes user is already approved by apache.
     username = "postcommit"
     password = "password"
     base64Auth = base64.encodebytes(("%s:%s" % (username, password)).encode()).replace(b'\n', b'').decode()
-    
+
     path = "cms/rest/hook/postcommit"
     port_webapp = 8080
-    
+
     opener = urllib.request.build_opener(urllib.request.HTTPHandler)
     request = urllib.request.Request("http://%s:%d/%s" % (HOST, port_webapp, path), data=body)
     request.add_header('Content-Type', 'application/json')
     request.add_header("Authorization", "Basic %s" % base64Auth)
+    request.add_header('X_AUTH_uid', username)
     request.get_method = lambda: 'PUT'
     url = opener.open(request)
 
