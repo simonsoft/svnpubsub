@@ -39,7 +39,9 @@ def svnlook(cmd, **kwargs):
 
 def svnlook_uuid(repo):
     cmd = ["uuid", "--", repo]
-    return svnlook(cmd).strip()
+    # Unifi parameters to all svnlook calls, ensures return type is string (got bytes on Ubuntu 22.04 / Python 3.10)
+    data = svnlook(cmd, universal_newlines=True).split("\n")
+    return data[0].strip()
 
 def svnlook_info(repo, revision):
     cmd = ["info", "-r", revision, "--", repo]
