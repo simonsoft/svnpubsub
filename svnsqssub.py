@@ -28,12 +28,11 @@
 import os
 import stat
 import boto3
+import logging
 import argparse
-import logging.handlers
-
+import svnpubsub.logger
 from svnpubsub.client import Commit
 from svnpubsub.daemon import Daemon, DaemonTask
-from svndumpsub import prepare_logging
 from svnpubsub.bgworker import BackgroundJob
 from botocore.exceptions import ClientError
 
@@ -101,29 +100,32 @@ class Task(DaemonTask):
 def main():
     parser = argparse.ArgumentParser(description='An SvnPubSub client that posts an SQS queue message for each commit.')
 
-    parser.add_argument('--logfile', help='filename for logging')
-    parser.add_argument('--pidfile', help="the process' PID will be written to this file")
+    parser.add_argument('--cloudid', help='AWS cloud-id')
+    parser.add_argument('--logfile', help='a filename for logging if stdout is not the desired output')
+    parser.add_argument('--pidfile', help='the PID file where the process PID will be written to')
     parser.add_argument('--uid', help='switch to this UID before running')
     parser.add_argument('--gid', help='switch to this GID before running')
     parser.add_argument('--daemon', action='store_true', help='run as a background daemon')
-    parser.add_argument('--umask', help='set this (octal) umask before running')
-    parser.add_argument('--queue', default=[], type=str, nargs='+',
-                        help='one or more SQS queue names to post the commits to')
-    parser.add_argument('--cloudid', help='AWS cloud-id')
+    parser.add_argument('--umask', help='set this (octal) UMASK before running')
+    parser.add_argument('--queues', default=[], type=str, nargs='+', metavar='SUFFIX',
+                        help='one or more SQS queue suffix names to compile the queue names: "cms-CLOUDID-SUFFIX"')
+    parser.add_argument('--log-level', type=int, default=logging.INFO,
+                        help='log level (DEBUG: %d | INFO: %d | WARNING: %d | ERROR: %d | CRITICAL: %d) (default: %d)' %
+                             (logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR, logging.CRITICAL, logging.INFO))
 
     args = parser.parse_args()
 
     if not args.cloudid:
-        raise ValueError('A valid --cloudid has to be provided (aws cloudid)')
+        parser.error('The AWS CLOUDID is a required argument')
     else:
         global CLOUDID
         CLOUDID = args.cloudid
 
-    if not len(args.queue):
-        raise ValueError('At least one SQS queue name must be supplied')
+    if not len(args.queues):
+        parser.error('At least one SQS queue name suffix must be provided')
     else:
         global SQS_QUEUES
-        SQS_QUEUES = args.queue
+        SQS_QUEUES = args.queues
 
     # In daemon mode, we let the daemonize module handle the pidfile.
     # Otherwise, we should write this (foreground) PID into the file.
@@ -134,10 +136,9 @@ def main():
             os.remove(args.pidfile)
         except OSError:
             pass
-        fd = os.open(args.pidfile, os.O_WRONLY | os.O_CREAT | os.O_EXCL, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
-        os.write(fd, b'%d\n' % pid)
-        os.close(fd)
-        logging.info('pid %d written to %s', pid, args.pidfile)
+        with os.open(args.pidfile, os.O_WRONLY | os.O_CREAT | os.O_EXCL, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH) as f:
+            os.write(f, b'%d\n' % pid)
+            logging.info('PID: %d -> %s', pid, args.pidfile)
 
     if args.gid:
         try:
@@ -145,7 +146,7 @@ def main():
         except ValueError:
             import grp
             gid = grp.getgrnam(args.gid)[2]
-        logging.info('setting gid %d', gid)
+        logging.info('GID: %d', gid)
         os.setgid(gid)
 
     if args.uid:
@@ -154,10 +155,11 @@ def main():
         except ValueError:
             import pwd
             uid = pwd.getpwnam(args.uid)[2]
-        logging.info('setting uid %d', uid)
+        logging.info('Setting UID: %d', uid)
         os.setuid(uid)
 
-    prepare_logging(args.logfile)
+    # Setup a new logging handler with the specified log level
+    svnpubsub.logger.setup(logfile=args.logfile, level=args.log_level)
 
     if args.daemon and not args.logfile:
         parser.error('LOGFILE is required when running as a daemon')
