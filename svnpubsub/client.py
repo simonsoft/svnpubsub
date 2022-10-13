@@ -132,11 +132,21 @@ class Notification(object):
   def __init__(self, data):
     self.__dict__.update(data)
 
+  def dumps(self):
+    return json.dumps(self, cls=NotificationEncoder)
+
+
 class Commit(Notification):
   KIND = 'COMMIT'
 
+
 class Metadata(Notification):
   KIND = 'METADATA'
+
+
+class NotificationEncoder(json.JSONEncoder):
+  def default(self, o):
+    return o.__dict__
 
 
 class JSONRecordHandler:
