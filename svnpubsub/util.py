@@ -15,6 +15,9 @@
 # limitations under the License.
 #
 
+import os
+import sys
+import logging
 import subprocess as __subprocess
 
 # check_output() is only available in Python 2.7. Allow us to run with
@@ -34,3 +37,29 @@ except AttributeError:
         if pipe.returncode:
             raise __subprocess.CalledProcessError(pipe.returncode, args)
         return output
+
+
+def execute(*args):
+    stdout = []
+    stderr = []
+    process = None
+    arguments = [*args]
+
+    logging.debug("Running: %s", " ".join(arguments))
+
+    try:
+        process = __subprocess.Popen(arguments, text=True, universal_newlines=True,
+                                     stdout=__subprocess.PIPE, stderr=__subprocess.PIPE)
+        process.wait()
+        for line in process.stdout.readlines():
+            stdout.append(line.rstrip())
+        for line in process.stderr.readlines():
+            stderr.append(line.rstrip())
+        logging.debug(os.linesep.join(stdout))
+        if process.returncode:
+            raise __subprocess.CalledProcessError(process.returncode, process.args, process.stdout, process.stderr)
+    except Exception:
+        _, value, traceback = sys.exc_info()
+        raise RuntimeError(os.linesep.join(stderr)).with_traceback(traceback)
+
+    return process, os.linesep.join(stdout), os.linesep.join(stderr)

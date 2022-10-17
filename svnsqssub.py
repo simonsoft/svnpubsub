@@ -35,16 +35,17 @@ from svnpubsub.client import Commit
 from svnpubsub.daemon import Daemon, DaemonTask
 from svnpubsub.bgworker import BackgroundJob
 from botocore.exceptions import ClientError
+from svnpubsub.util import execute
 
 PORT = 2069
 HOST = "127.0.0.1"
 REPO_EXCLUDES = []
+SVNBIN_DIR = "/usr/bin"
+SVNROOT_DIR = "/srv/cms/svn"
+SQS_MESSAGE_GROUP_ID = "commit"
 SQS_MESSAGE_ATTRIBUTES = {}
-SQS_MESSAGE_GROUP_ID = 'commit'
 SQS_QUEUES = []
 CLOUDID = None
-
-sqs = boto3.resource('sqs')
 
 
 class Job(BackgroundJob):
@@ -56,6 +57,10 @@ class Job(BackgroundJob):
         return True
 
     def run(self):
+        global CLOUDID, SQS_QUEUES, SQS_MESSAGE_GROUP_ID, SQS_MESSAGE_ATTRIBUTES
+        if not CLOUDID:
+            CLOUDID = get_cloudid(self.repo)
+        sqs = boto3.resource('sqs')
         for item in SQS_QUEUES:
             queue_name = "cms-{}-{}".format(CLOUDID, item)
             item = sqs.get_queue_by_name(QueueName=queue_name)
@@ -64,7 +69,8 @@ class Job(BackgroundJob):
                 response = item.send_message(
                     MessageBody=self.commit.dumps(),
                     MessageGroupId=SQS_MESSAGE_GROUP_ID,
-                    MessageAttributes=SQS_MESSAGE_ATTRIBUTES
+                    MessageAttributes=SQS_MESSAGE_ATTRIBUTES,
+                    MessageDeduplicationId="{}/r{}".format(self.repo, self.rev)
                 )
                 logging.info("Posted r%d from %s to: %s", self.rev, self.repo, queue_name)
                 logging.debug("Response: %s", response)
@@ -97,16 +103,32 @@ class Task(DaemonTask):
             self.worker.queue(job)
 
 
+def get_cloudid(repo, rev=0):
+    global SVNBIN_DIR, SVNROOT_DIR
+    arguments = [
+        os.path.join(SVNBIN_DIR, 'svnlook'),
+        'propget', '--revision', str(rev), '--revprop',
+        os.path.join(SVNROOT_DIR, repo),
+        'cmsconfig:cloudid'
+    ]
+    return execute(*arguments)
+
+
 def main():
+    global CLOUDID, SVNROOT_DIR, SVNBIN_DIR, SQS_QUEUES
+
     parser = argparse.ArgumentParser(description='An SvnPubSub client that posts an SQS queue message for each commit.')
 
-    parser.add_argument('--cloudid', help='AWS cloud-id')
+    parser.add_argument('--cloudid', help='aws cloud-id which overrides retrieving it from revprops or repository name')
     parser.add_argument('--logfile', help='a filename for logging if stdout is not the desired output')
     parser.add_argument('--pidfile', help='the PID file where the process PID will be written to')
     parser.add_argument('--uid', help='switch to this UID before running')
     parser.add_argument('--gid', help='switch to this GID before running')
     parser.add_argument('--daemon', action='store_true', help='run as a background daemon')
     parser.add_argument('--umask', help='set this (octal) UMASK before running')
+    parser.add_argument('--svnroot', default=SVNROOT_DIR, help='the path to repositories (default: %s)' % SVNROOT_DIR)
+    parser.add_argument('--svnbin', default=SVNBIN_DIR,
+                        help='the path to svn, svnlook, svnadmin, ... binaries (default: %s)' % SVNBIN_DIR)
     parser.add_argument('--queues', default=[], type=str, nargs='+', metavar='SUFFIX',
                         help='one or more SQS queue suffix names to compile the queue names: "cms-CLOUDID-SUFFIX"')
     parser.add_argument('--log-level', type=int, default=logging.INFO,
@@ -115,16 +137,17 @@ def main():
 
     args = parser.parse_args()
 
-    if not args.cloudid:
-        parser.error('The AWS CLOUDID is a required argument')
-    else:
-        global CLOUDID
+    if args.cloudid:
         CLOUDID = args.cloudid
+    elif args.svnbin and args.svnroot:
+        SVNBIN_DIR = args.svnbin
+        SVNROOT_DIR = args.svnroot
+    else:
+        parser.error('Either CLOUDID or SVNBIN and SVNROOT must be provided')
 
     if not len(args.queues):
         parser.error('At least one SQS queue name suffix must be provided')
     else:
-        global SQS_QUEUES
         SQS_QUEUES = args.queues
 
     # In daemon mode, we let the daemonize module handle the pidfile.
@@ -136,7 +159,8 @@ def main():
             os.remove(args.pidfile)
         except OSError:
             pass
-        with os.open(args.pidfile, os.O_WRONLY | os.O_CREAT | os.O_EXCL, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH) as f:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH
+        with os.open(args.pidfile, flags) as f:
             os.write(f, b'%d\n' % pid)
             logging.info('PID: %d -> %s', pid, args.pidfile)
 

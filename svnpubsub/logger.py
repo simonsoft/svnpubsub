@@ -2,7 +2,7 @@ import sys
 import logging
 
 
-def setup(logfile=None, level: int | str = logging.INFO):
+def setup(logfile=None, level=logging.INFO):
 
     if logfile:
         # Rotate logs daily, keeping 7 days worth.
