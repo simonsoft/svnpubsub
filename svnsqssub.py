@@ -111,7 +111,8 @@ def get_cloudid(repo, rev=0):
         os.path.join(SVNROOT_DIR, repo),
         'cmsconfig:cloudid'
     ]
-    return execute(*arguments)
+    _, stdout, _ = execute(*arguments)
+    return stdout
 
 
 def main():

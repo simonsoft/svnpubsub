@@ -1,5 +1,6 @@
 import sys
 import logging
+import logging.handlers
 
 
 def setup(logfile=None, level=logging.INFO):
