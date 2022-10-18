@@ -17,7 +17,7 @@
 # limitations under the License.
 #
 #
-# SvnSQSSub - Subscribe to a SvnPubSub stream, dumps commits, posts them to AWS SQS.
+# SvnSQSSub - Subscribe to a SvnPubSub topic, posts commit events to AWS SQS.
 #
 # Example:
 #  svnsqssub.py
@@ -44,8 +44,8 @@ SVNBIN_DIR = "/usr/bin"
 SVNROOT_DIR = "/srv/cms/svn"
 SQS_MESSAGE_GROUP_ID = "commit"
 SQS_MESSAGE_ATTRIBUTES = {}
-SQS_QUEUES = []
-CLOUDID = None
+SQS_QUEUES = {}
+CLOUDID = {}
 
 
 class Job(BackgroundJob):
@@ -57,16 +57,25 @@ class Job(BackgroundJob):
         return True
 
     def run(self):
+        queue = None
+        cloudid = None
         global CLOUDID, SQS_QUEUES, SQS_MESSAGE_GROUP_ID, SQS_MESSAGE_ATTRIBUTES
-        if not CLOUDID:
-            CLOUDID = get_cloudid(self.repo)
+        if isinstance(CLOUDID, str):
+            cloudid = CLOUDID
+        elif self.repo in CLOUDID:
+            cloudid = CLOUDID[self.repo]
+        else:
+            cloudid = CLOUDID[self.repo] = get_cloudid(self.repo)
         sqs = boto3.resource('sqs')
-        for item in SQS_QUEUES:
-            queue_name = "cms-{}-{}".format(CLOUDID, item)
-            item = sqs.get_queue_by_name(QueueName=queue_name)
+        for suffix, queues in SQS_QUEUES.items():
+            queue_name = "cms-{}-{}".format(cloudid, suffix)
+            if self.repo in queues:
+                queue = SQS_QUEUES[suffix][self.repo]
+            else:
+                queue = SQS_QUEUES[suffix][self.repo] = sqs.get_queue_by_name(QueueName=queue_name)
             try:
                 logging.debug("Posting r%d from %s to: %s", self.rev, self.repo, queue_name)
-                response = item.send_message(
+                response = queue.send_message(
                     MessageBody=self.commit.dumps(),
                     MessageGroupId=SQS_MESSAGE_GROUP_ID,
                     MessageAttributes=SQS_MESSAGE_ATTRIBUTES,
@@ -118,7 +127,7 @@ def get_cloudid(repo, rev=0):
 def main():
     global CLOUDID, SVNROOT_DIR, SVNBIN_DIR, SQS_QUEUES
 
-    parser = argparse.ArgumentParser(description='An SvnPubSub client that posts an SQS queue message for each commit.')
+    parser = argparse.ArgumentParser(description='An SvnPubSub client that subscribes to a topic, posts commit events to AWS SQS.')
 
     parser.add_argument('--cloudid', help='aws cloud-id which overrides retrieving it from revprops or repository name')
     parser.add_argument('--logfile', help='a filename for logging if stdout is not the desired output')
@@ -149,7 +158,7 @@ def main():
     if not len(args.queues):
         parser.error('At least one SQS queue name suffix must be provided')
     else:
-        SQS_QUEUES = args.queues
+        SQS_QUEUES = {queue: {} for queue in args.queues}
 
     # In daemon mode, we let the daemonize module handle the pidfile.
     # Otherwise, we should write this (foreground) PID into the file.
