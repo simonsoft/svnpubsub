@@ -120,8 +120,12 @@ def get_cloudid(repo, rev=0):
         os.path.join(SVNROOT_DIR, repo),
         'cmsconfig:cloudid'
     ]
-    _, stdout, _ = execute(*arguments)
-    return stdout
+    try:
+        _, stdout, _ = execute(*arguments)
+        return stdout
+    except RuntimeError as e:
+        logging.warning("%s, falling back to repository name: %s", str(e), repo)
+        return repo
 
 
 def main():
