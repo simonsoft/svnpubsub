@@ -28,6 +28,7 @@
 import os
 import re
 import stat
+import shutil
 import logging
 import argparse
 import configparser
@@ -141,8 +142,17 @@ class Job(BackgroundJob):
         return True
 
     def run(self):
+        global OUTPUT_DIR
         access_accs = self.retrieve_access_accs()
         output_file = os.path.join(OUTPUT_DIR, "svn-{}.conf".format(self.repo))
+        try:
+            exists = os.path.exists(output_file)
+            config = generate(access_accs=access_accs, repo=self.repo)
+            with open(output_file, 'w') as output:
+                shutil.copyfileobj(config, output)
+                logging.info("Config %s: %s", "regenerated" if exists else "generated", output_file)
+        except Exception as e:
+            logging.error("%s", str(e))
 
 
 class Task(DaemonTask):
@@ -171,22 +181,22 @@ class Task(DaemonTask):
 
 
 def main():
-    global SVNROOT_DIR, SVNBIN_DIR
+    global SVNROOT_DIR, SVNBIN_DIR, OUTPUT_DIR
 
     parser = argparse.ArgumentParser(description='An SvnPubSub client that monitors the access.accs and regenerates the apache config file.')
 
-    parser.add_argument('--logfile', help='a filename for logging if stdout is not the desired output')
-    parser.add_argument('--pidfile', help='the PID file where the process PID will be written to')
-    parser.add_argument('--uid', help='switch to this UID before running')
-    parser.add_argument('--gid', help='switch to this GID before running')
-    parser.add_argument('--daemon', action='store_true', help='run as a background daemon')
-    parser.add_argument('--umask', help='set this (octal) UMASK before running')
-    parser.add_argument('--repo', help='the repository name to use in combination with --input file as input')
     parser.add_argument('--input', help='a local access.acss file to use instead of retrieving it from a repo')
+    parser.add_argument('--repo', help='the repository name to use in combination with --input file as input')
+    parser.add_argument('--output', help='the output file to write the configuration to when --input is used')
     parser.add_argument('--output-dir', help='the path to place the generated apache configuration files')
     parser.add_argument('--svnroot', default=SVNROOT_DIR, help='the path to repositories (default: %s)' % SVNROOT_DIR)
-    parser.add_argument('--svnbin', default=SVNBIN_DIR,
-                        help='the path to svn, svnlook, svnadmin, ... binaries (default: %s)' % SVNBIN_DIR)
+    parser.add_argument('--svnbin', default=SVNBIN_DIR, help='the path to svn, svnlook, svnadmin, ... binaries (default: %s)' % SVNBIN_DIR)
+    parser.add_argument('--umask', help='set this (octal) UMASK before running')
+    parser.add_argument('--daemon', action='store_true', help='run as a background daemon')
+    parser.add_argument('--uid', help='switch to this UID before running')
+    parser.add_argument('--gid', help='switch to this GID before running')
+    parser.add_argument('--pidfile', help='the PID file where the process PID will be written to')
+    parser.add_argument('--logfile', help='a filename for logging if stdout is not the desired output')
     parser.add_argument('--log-level', type=int, default=logging.INFO,
                         help='log level (DEBUG: %d | INFO: %d | WARNING: %d | ERROR: %d | CRITICAL: %d) (default: %d)' %
                              (logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR, logging.CRITICAL, logging.INFO))
@@ -198,14 +208,25 @@ def main():
 
     if args.input:
         if not os.path.exists(args.input):
-            parser.error('Filed to find the input file: {}'.format(args.input))
-        with open(args.input, 'r') as file:
-            access_accs = file.read()
-            config = generate(access_accs=access_accs, repo=args.repo)
-            print(config.read())
-        exit(0)
+            parser.error('Input file not found: {}'.format(args.input))
+        try:
+            with open(args.input, 'r') as input:
+                access_accs = input.read()
+                config = generate(access_accs=access_accs, repo=args.repo)
+                if args.output:
+                    with open(args.output, 'w') as output:
+                        shutil.copyfileobj(config, output)
+                else:
+                    print(config.read())
+                exit(0)
+        except Exception as e:
+            logging.error("%s", str(e))
+            exit(1)
     elif not args.output_dir:
         parser.error('OUTPUT_DIR must be provided')
+
+    if args.output_dir:
+        OUTPUT_DIR = args.output_dir
 
     if args.svnbin and args.svnroot:
         SVNBIN_DIR = args.svnbin
