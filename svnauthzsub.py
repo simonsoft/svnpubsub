@@ -185,9 +185,9 @@ def main():
 
     parser = argparse.ArgumentParser(description='An SvnPubSub client that monitors the access.accs and regenerates the apache config file.')
 
-    parser.add_argument('--input', help='a local access.acss file to use instead of retrieving it from a repo')
-    parser.add_argument('--repo', help='the repository name to use in combination with --input file as input')
-    parser.add_argument('--output', help='the output file to write the configuration to when --input is used')
+    parser.add_argument('--input', help='process a local access.acss file, generate the configuration and exit')
+    parser.add_argument('--repo', help='the repository name to use in combination with INPUT file as input')
+    parser.add_argument('--output', help='the output file to write to when INPUT is supplied if not stdout')
     parser.add_argument('--output-dir', help='the path to place the generated apache configuration files')
     parser.add_argument('--svnroot', default=SVNROOT_DIR, help='the path to repositories (default: %s)' % SVNROOT_DIR)
     parser.add_argument('--svnbin', default=SVNBIN_DIR, help='the path to svn, svnlook, svnadmin, ... binaries (default: %s)' % SVNBIN_DIR)
