@@ -26,13 +26,15 @@
 #
 
 import os
+import re
 import stat
 import logging
 import argparse
+import configparser
 import svnpubsub.logger
 from io import StringIO
 from textwrap import indent
-from configparser import ConfigParser
+from collections.abc import Sequence
 from svnpubsub.client import Commit
 from svnpubsub.daemon import Daemon, DaemonTask
 from svnpubsub.bgworker import BackgroundJob
@@ -48,18 +50,32 @@ INDENTATION = 2
 
 
 def generate(access_accs, repo):
+    class ConfigParser(configparser.ConfigParser):
+        """A custom ConfigParser sub-class that ensures the option cases are preserved."""
 
-    def location(path, content):
-        result = "<Location /svn/{}{} >{}".format(repo, path, os.linesep)
-        result += indent(content, "".ljust(INDENTATION))
-        result += "</Location>" + os.linesep + os.linesep
+        def optionxform(self, optionstr):
+            return optionstr
+
+    def directive(name: str, content: str | list, parameters: str = None):
+        result = "<{}{}>".format(name, " {} ".format(parameters) if parameters else "") + os.linesep
+        if isinstance(content, Sequence):
+            result += indent("".join(content), "".ljust(INDENTATION))
+        else:
+            result += indent(content, "".ljust(INDENTATION))
+        result += "</{}>".format(name) + os.linesep
         return result
+
+    def location(name, content):
+        return directive("Location", content, parameters="/svn/{}{}".format(repo, name)) + os.linesep
+
+    def require(expression):
+        return "Require {}".format(expression) + os.linesep
+
+    def require_any(content):
+        return directive("RequireAny", content)
 
     def require_all(content):
-        result = "<RequireAll>" + os.linesep
-        result += indent(content, "".ljust(INDENTATION))
-        result += "</RequireAll>" + os.linesep
-        return result
+        return directive("RequireAll", content)
 
     output = StringIO()
     config_parser = ConfigParser()
@@ -69,7 +85,41 @@ def generate(access_accs, repo):
     # Sort the paths putting parent before children as that is how it works as expected in apache
     paths.sort(key=lambda x: (os.path.dirname(x), os.path.basename(x)))
     for path in paths:
-        output.write(location(path, require_all("Require valid-user" + os.linesep)))
+        section = config_parser[path]
+        permissions = {section[role]: [] for role in section if role.startswith('*') or role.startswith('@')}
+        for role in section:
+            # Remove the starting @ from the role name
+            matches = re.match("^(?:@)?([\\w*]+)$", role)
+            if matches:
+                permissions[section[role]].append(matches.group(1))
+        if '' not in permissions or '*' not in permissions['']:
+            if path != '/':
+                logging.warning("Section [%s] is missing the '* = ' permission inheritance specifier.", path)
+        # Now append the individual sections
+        output.write(location(path, [
+            # Add the common OPTIONS section
+            require_all([
+                require("valid-user"),
+                require("method OPTIONS")
+            ]),
+            # Add the Read-Only section
+            require_all([
+                require("valid-user"),
+                require("method GET PROPFIND OPTIONS REPORT"),
+                require_any([
+                    require("expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*{}(,[^,]+)*$/".format(role))
+                    for role in permissions['r']
+                ])
+            ]) if 'r' in permissions else "",
+            # Add the Read/Write section
+            require_all([
+                require("valid-user"),
+                require_any([
+                    require("expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*{}(,[^,]+)*$/".format(role))
+                    for role in permissions['rw']
+                ])
+            ]) if 'rw' in permissions else ""
+        ]))
     output.seek(0)
     return output
 
