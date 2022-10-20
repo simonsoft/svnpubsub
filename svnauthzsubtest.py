@@ -70,7 +70,7 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "@CmsUser = r",
         ]
         expected = [
-            "<Location /svn/{}/ >".format(repo),
+            "<Location /svn/{} >".format(repo),
             "<RequireAll>",
             "Require valid-user",
             "Require method OPTIONS",

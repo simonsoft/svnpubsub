@@ -66,7 +66,7 @@ def generate(access_accs: str | list, repo):
         return result
 
     def location(name, content):
-        return directive("Location", content, parameters="/svn/{}{}".format(repo, name)) + os.linesep
+        return directive("Location", content, parameters="/svn/{}{}".format(repo, name.rstrip('/'))) + os.linesep
 
     def require(expression):
         return "Require {}".format(expression) + os.linesep
