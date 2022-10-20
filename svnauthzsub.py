@@ -35,7 +35,6 @@ import configparser
 import svnpubsub.logger
 from io import StringIO
 from textwrap import indent
-from collections.abc import Sequence
 from svnpubsub.client import Commit
 from svnpubsub.daemon import Daemon, DaemonTask
 from svnpubsub.bgworker import BackgroundJob
@@ -50,7 +49,7 @@ OUTPUT_DIR = None
 INDENTATION = 2
 
 
-def generate(access_accs, repo):
+def generate(access_accs: str | list, repo):
     class ConfigParser(configparser.ConfigParser):
         """A custom ConfigParser sub-class that ensures the option cases are preserved."""
 
@@ -59,7 +58,7 @@ def generate(access_accs, repo):
 
     def directive(name: str, content: str | list, parameters: str = None):
         result = "<{}{}>".format(name, " {} ".format(parameters) if parameters else "") + os.linesep
-        if isinstance(content, Sequence):
+        if isinstance(content, list):
             result += indent("".join(content), "".ljust(INDENTATION))
         else:
             result += indent(content, "".ljust(INDENTATION))
@@ -80,7 +79,7 @@ def generate(access_accs, repo):
 
     output = StringIO()
     config_parser = ConfigParser()
-    config_parser.read_string(access_accs)
+    config_parser.read_string(os.linesep.join(access_accs) if isinstance(access_accs, list) else access_accs)
     # Ignore sections not containing a path such as 'groups', etc.
     paths = [section for section in config_parser.sections() if '/' in section]
     # Sort the paths putting parent before children as that is how it works as expected in apache
