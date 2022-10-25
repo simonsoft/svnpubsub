@@ -31,6 +31,7 @@ import boto3
 import logging
 import argparse
 import svnpubsub.logger
+from io import StringIO
 from svnpubsub.client import Commit
 from svnpubsub.daemon import Daemon, DaemonTask
 from svnpubsub.bgworker import BackgroundJob
@@ -83,7 +84,7 @@ class Job(BackgroundJob):
                     input=json.dumps({
                         "action": "item-event",
                         "userid": self.commit.committer,
-                        "itemid": "x-svn://{}.{}/svn/{}/{}?p={}".format(cloudid, DOMAIN, self.repo, item, self.commit.id)
+                        "itemid": "x-svn://{}.{}/svn/{}/{}?p={}".format(cloudid, DOMAIN, self.repo, encode(item), self.commit.id)
                     })
                 )
                 logging.info("Successfully started %d %s execution(s)", len(self.commit.changed.keys()), name)
@@ -119,6 +120,31 @@ def get_cloudid(repo, rev=0):
     except RuntimeError as e:
         logging.warning("%s, falling back to repository name: %s", str(e), repo)
         return repo
+
+
+def encode(path: str) -> str:
+    output = StringIO()
+    safe_characters = [
+        *[chr(x) for x in range(ord('a'), ord('z') + 1)],   # a-z
+        *[chr(x) for x in range(ord('A'), ord('Z') + 1)],   # A-Z
+        *[chr(x) for x in range(ord('0'), ord('9') + 1)],   # 0-9
+        # The following additions to safe rule was likely made by the Derby project:
+        # The 'safe' rule
+        '$', '-', '_', '.', '+',
+        # The 'extra' rule
+        '!', '*', '\'', '(', ')', ',',
+        # Special characters common to http: file: and ftp: URLs ('fsegment' and 'hsegment' rules)
+        '/', ':', '@', '&', '=',
+        # Added for Svnkit compatibility
+        '~',
+    ]
+    for i, c in enumerate(path):
+        if c in safe_characters:
+            output.write(c)
+        else:
+            output.write("".join(['%{:02X}'.format(byte) for byte in c.encode("utf-8")]))
+    output.seek(0)
+    return output.read()
 
 
 def main():
