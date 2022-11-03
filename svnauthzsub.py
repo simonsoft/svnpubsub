@@ -40,7 +40,7 @@ from svnpubsub.client import Commit
 from svnpubsub.daemon import Daemon, DaemonTask
 from svnpubsub.bgworker import BackgroundJob
 
-MC_PORT = 2069
+PORT = 2069
 VPC_PORT = 8091
 HOST = "127.0.0.1"
 EXCLUDED_REPOS = []
@@ -144,7 +144,6 @@ class Job(BackgroundJob):
     def run(self):
         global OUTPUT_DIR
         access_accs = self.retrieve_access_accs()
-        print(access_accs)
         if not access_accs:
             logging.warning("Commit skipped.")
             return
@@ -162,7 +161,7 @@ class Job(BackgroundJob):
 class Task(DaemonTask):
 
     def __init__(self):
-        super().__init__(urls=["http://%s:%d/commits" % (HOST, MC_PORT)], excluded_repos=EXCLUDED_REPOS)
+        super().__init__(urls=["http://%s:%d/commits" % (HOST, PORT)], excluded_repos=EXCLUDED_REPOS)
 
     def start(self):
         logging.info('Daemon started.')
