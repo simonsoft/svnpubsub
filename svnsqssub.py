@@ -26,6 +26,7 @@
 #
 
 import os
+import re
 import stat
 import boto3
 import logging
@@ -60,10 +61,13 @@ class Job(BackgroundJob):
         global CLOUDID, SQS_QUEUES, SQS_MESSAGE_GROUP_ID, SQS_MESSAGE_ATTRIBUTES
         if isinstance(CLOUDID, str):
             cloudid = CLOUDID
-        elif self.repo in CLOUDID:
+        elif self.repo in CLOUDID and CLOUDID[self.repo]:
             cloudid = CLOUDID[self.repo]
         else:
             cloudid = CLOUDID[self.repo] = get_cloudid(self.repo)
+        if not cloudid:
+            logging.warning("Commit skipped.")
+            return
         sqs = boto3.resource('sqs')
         for suffix, queues in SQS_QUEUES.items():
             queue_name = "cms-{}-{}".format(cloudid, suffix)
@@ -104,8 +108,12 @@ def get_cloudid(repo):
     name = os.path.join(SSM_PREFIX, repo, 'cloudid')
     try:
         cloudid = ssm.get_parameter(Name=name)['Parameter']['Value']
-        logging.info("Retrieved CloudId from SSM parameter store at %s: %s", name, cloudid)
-        return cloudid
+        if cloudid and re.match('^[a-z0-9-]{1,20}$', cloudid, re.MULTILINE):
+            logging.info("Retrieved CloudId from SSM parameter store at %s: %s", name, cloudid)
+            return cloudid
+        else:
+            logging.error("The retrieved CloudId from SSM parameter store at %s was invalid: %s", name, cloudid)
+        return None
     except Exception as e:
         logging.warning("%s, falling back to repository name: %s", str(e), repo)
         return repo

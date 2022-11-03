@@ -24,9 +24,10 @@
 #
 # On startup svnsfnsub starts listening to commits in all repositories.
 #
-import json
 import os
+import re
 import stat
+import json
 import boto3
 import logging
 import argparse
@@ -57,10 +58,13 @@ class Job(BackgroundJob):
         global ACCOUNT, DOMAIN, CLOUDID
         if isinstance(CLOUDID, str):
             cloudid = CLOUDID
-        elif self.repo in CLOUDID:
+        elif self.repo in CLOUDID and CLOUDID[self.repo]:
             cloudid = CLOUDID[self.repo]
         else:
             cloudid = CLOUDID[self.repo] = get_cloudid(self.repo)
+        if not cloudid:
+            logging.warning("Commit skipped.")
+            return
         if ACCOUNT is None:
             sts = boto3.client('sts')
             response = sts.get_caller_identity()
@@ -109,8 +113,12 @@ def get_cloudid(repo):
     name = os.path.join(SSM_PREFIX, repo, 'cloudid')
     try:
         cloudid = ssm.get_parameter(Name=name)['Parameter']['Value']
-        logging.info("Retrieved CloudId from SSM parameter store at %s: %s", name, cloudid)
-        return cloudid
+        if cloudid and re.match('^[a-z0-9-]{1,20}$', cloudid, re.MULTILINE):
+            logging.info("Retrieved CloudId from SSM parameter store at %s: %s", name, cloudid)
+            return cloudid
+        else:
+            logging.error("The retrieved CloudId from SSM parameter store at %s was invalid: %s", name, cloudid)
+        return None
     except Exception as e:
         logging.warning("%s, falling back to repository name: %s", str(e), repo)
         return repo
