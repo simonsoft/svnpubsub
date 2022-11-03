@@ -35,13 +35,11 @@ from svnpubsub.client import Commit
 from svnpubsub.daemon import Daemon, DaemonTask
 from svnpubsub.bgworker import BackgroundJob
 from botocore.exceptions import ClientError
-from svnpubsub.util import execute
 
 PORT = 2069
 HOST = "127.0.0.1"
+SSM_PREFIX = None
 EXCLUDED_REPOS = []
-SVNBIN_DIR = "/usr/bin"
-SVNROOT_DIR = "/srv/cms/svn"
 SQS_MESSAGE_GROUP_ID = "commit"
 SQS_MESSAGE_ATTRIBUTES = {}
 SQS_QUEUES = {}
@@ -100,37 +98,32 @@ class Task(DaemonTask):
         self.worker.queue(job)
 
 
-def get_cloudid(repo, rev=0):
-    global SVNBIN_DIR, SVNROOT_DIR
-    arguments = [
-        os.path.join(SVNBIN_DIR, 'svnlook'),
-        'propget', '--revision', str(rev), '--revprop',
-        os.path.join(SVNROOT_DIR, repo),
-        'cmsconfig:cloudid'
-    ]
+def get_cloudid(repo):
+    global SSM_PREFIX
+    ssm = boto3.client('ssm')
+    name = os.path.join(SSM_PREFIX, repo, 'cloudid')
     try:
-        _, stdout, _ = execute(*arguments)
-        return stdout
-    except RuntimeError as e:
+        cloudid = ssm.get_parameter(Name=name)['Parameter']['Value']
+        logging.info("Retrieved CloudId from SSM parameter store at %s: %s", name, cloudid)
+        return cloudid
+    except Exception as e:
         logging.warning("%s, falling back to repository name: %s", str(e), repo)
         return repo
 
 
 def main():
-    global CLOUDID, SVNROOT_DIR, SVNBIN_DIR, SQS_QUEUES
+    global CLOUDID, SSM_PREFIX, SQS_QUEUES
 
     parser = argparse.ArgumentParser(description='An SvnPubSub client that subscribes to a topic, posts commit events to AWS SQS.')
 
-    parser.add_argument('--cloudid', help='aws cloud-id which overrides retrieving it from revprops or repository name')
+    parser.add_argument('--ssm-prefix', help='aws ssm prefix used to retrieve the CLOUDID from the parameter store')
+    parser.add_argument('--cloudid', help='aws cloud-id which overrides retrieving it from ssm parameter store or repository name')
     parser.add_argument('--logfile', help='a filename for logging if stdout is not the desired output')
     parser.add_argument('--pidfile', help='the PID file where the process PID will be written to')
     parser.add_argument('--uid', help='switch to this UID before running')
     parser.add_argument('--gid', help='switch to this GID before running')
     parser.add_argument('--daemon', action='store_true', help='run as a background daemon')
     parser.add_argument('--umask', help='set this (octal) UMASK before running')
-    parser.add_argument('--svnroot', default=SVNROOT_DIR, help='the path to repositories (default: %s)' % SVNROOT_DIR)
-    parser.add_argument('--svnbin', default=SVNBIN_DIR,
-                        help='the path to svn, svnlook, svnadmin, ... binaries (default: %s)' % SVNBIN_DIR)
     parser.add_argument('--queues', default=[], type=str, nargs='+', metavar='SUFFIX',
                         help='one or more SQS queue suffix names to compile the queue names: "cms-CLOUDID-SUFFIX"')
     parser.add_argument('--log-level', type=int, default=logging.INFO,
@@ -141,11 +134,10 @@ def main():
 
     if args.cloudid:
         CLOUDID = args.cloudid
-    elif args.svnbin and args.svnroot:
-        SVNBIN_DIR = args.svnbin
-        SVNROOT_DIR = args.svnroot
+    elif args.ssm_prefix:
+        SSM_PREFIX = args.ssm_prefix
     else:
-        parser.error('Either CLOUDID or SVNBIN and SVNROOT must be provided')
+        parser.error('Either CLOUDID or SSM_PREFIX must be provided')
 
     if not len(args.queues):
         parser.error('At least one SQS queue name suffix must be provided')
