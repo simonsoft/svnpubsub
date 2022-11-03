@@ -35,16 +35,15 @@ import configparser
 import svnpubsub.logger
 from io import StringIO
 from textwrap import indent
+from urllib.request import urlopen
 from svnpubsub.client import Commit
 from svnpubsub.daemon import Daemon, DaemonTask
 from svnpubsub.bgworker import BackgroundJob
-from svnpubsub.util import execute
 
-PORT = 2069
+MC_PORT = 2069
+VPC_PORT = 8091
 HOST = "127.0.0.1"
 EXCLUDED_REPOS = []
-SVNBIN_DIR = "/usr/bin"
-SVNROOT_DIR = "/srv/cms/svn"
 OUTPUT_DIR = None
 INDENTATION = 2
 
@@ -130,12 +129,14 @@ class Job(BackgroundJob):
         super().__init__(repo=commit.repositoryname, rev=commit.id, head=commit.id, commit=commit)
 
     def retrieve_access_accs(self, rev=0):
-        global SVNBIN_DIR, SVNROOT_DIR
-        svnlook = os.path.join(SVNBIN_DIR, 'svnlook')
-        repository = os.path.join(SVNROOT_DIR, self.repo)
-        arguments = [svnlook, 'cat', repository, '/access.accs']
-        _, stdout, _ = execute(*arguments)
-        return stdout
+        global HOST, VPC_PORT
+        url = "http://{}:{}/svn/{}/access.accs".format(HOST, VPC_PORT, self.repo)
+        try:
+            with urlopen(url=url) as response:
+                return response.read().decode('utf-8')
+        except Exception as e:
+            logging.error("Failed to retrieve the access.accs file: %s", str(e))
+        return None
 
     def validate(self) -> bool:
         return True
@@ -143,6 +144,10 @@ class Job(BackgroundJob):
     def run(self):
         global OUTPUT_DIR
         access_accs = self.retrieve_access_accs()
+        print(access_accs)
+        if not access_accs:
+            logging.warning("Commit skipped.")
+            return
         output_file = os.path.join(OUTPUT_DIR, "svn-{}.conf".format(self.repo))
         try:
             exists = os.path.exists(output_file)
@@ -157,7 +162,7 @@ class Job(BackgroundJob):
 class Task(DaemonTask):
 
     def __init__(self):
-        super().__init__(urls=["http://%s:%d/commits" % (HOST, PORT)], excluded_repos=EXCLUDED_REPOS)
+        super().__init__(urls=["http://%s:%d/commits" % (HOST, MC_PORT)], excluded_repos=EXCLUDED_REPOS)
 
     def start(self):
         logging.info('Daemon started.')
@@ -169,7 +174,7 @@ class Task(DaemonTask):
 
 
 def main():
-    global SVNROOT_DIR, SVNBIN_DIR, OUTPUT_DIR
+    global OUTPUT_DIR
 
     parser = argparse.ArgumentParser(description='An SvnPubSub client that monitors the access.accs and regenerates the apache config file.')
 
@@ -177,8 +182,6 @@ def main():
     parser.add_argument('--repo', help='the repository name to use in combination with INPUT file as input')
     parser.add_argument('--output', help='the output file to write to when INPUT is supplied if not stdout')
     parser.add_argument('--output-dir', help='the path to place the generated apache configuration files')
-    parser.add_argument('--svnroot', default=SVNROOT_DIR, help='the path to repositories (default: %s)' % SVNROOT_DIR)
-    parser.add_argument('--svnbin', default=SVNBIN_DIR, help='the path to svn, svnlook, svnadmin, ... binaries (default: %s)' % SVNBIN_DIR)
     parser.add_argument('--umask', help='set this (octal) UMASK before running')
     parser.add_argument('--daemon', action='store_true', help='run as a background daemon')
     parser.add_argument('--uid', help='switch to this UID before running')
@@ -215,12 +218,6 @@ def main():
 
     if args.output_dir:
         OUTPUT_DIR = args.output_dir
-
-    if args.svnbin and args.svnroot:
-        SVNBIN_DIR = args.svnbin
-        SVNROOT_DIR = args.svnroot
-    else:
-        parser.error('SVNBIN and SVNROOT must be provided')
 
     # In daemon mode, we let the daemonize module handle the pidfile.
     # Otherwise, we should write this (foreground) PID into the file.
