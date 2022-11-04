@@ -91,11 +91,12 @@ def generate(access_accs: str | list, repo):
             matches = re.match("^(?:@)?([\\w*]+)$", role)
             if matches:
                 permissions[section[role]].append(matches.group(1))
-        if '' not in permissions or '*' not in permissions['']:
-            if path != '/':
-                logging.warning("Section [%s] is missing the '* = ' permission inheritance specifier.", path)
+        if ('' not in permissions or '*' not in permissions['']) and path != '/':
+            logging.warning("Section [%s] is missing a '* = ' permission inheritance specifier or it is invalid.", path)
         # Now append the individual sections
         output.write(location(path, [
+            require("all denied")   # Special case when the only entry in a section is a "* = " statement
+        ] if len(permissions) == 1 and list(permissions.values())[0] == ['*'] else [
             # Add the common OPTIONS section
             require_all([
                 require("valid-user"),
@@ -107,7 +108,7 @@ def generate(access_accs: str | list, repo):
                 require("method GET PROPFIND OPTIONS REPORT"),
                 require_any([
                     require("expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*{}(,[^,]+)*$/".format(role))
-                    for role in permissions['r']
+                    for role in permissions['r'] if role != '*'
                 ])
             ]) if 'r' in permissions else "",
             # Add the Read/Write section
@@ -115,7 +116,7 @@ def generate(access_accs: str | list, repo):
                 require("valid-user"),
                 require_any([
                     require("expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*{}(,[^,]+)*$/".format(role))
-                    for role in permissions['rw']
+                    for role in permissions['rw'] if role != '*'
                 ])
             ]) if 'rw' in permissions else ""
         ]))

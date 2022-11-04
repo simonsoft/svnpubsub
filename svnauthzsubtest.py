@@ -4,7 +4,7 @@ from svnauthzsub import generate
 
 class SvnAuthzSubTestCase(unittest.TestCase):
 
-    def test_read_only(self):
+    def test_permissions_read_only(self):
         repo = "testrepo"
         input = [
             "[/qa/readonly]",
@@ -55,6 +55,26 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsUser(,[^,]+)*$/",
             "</RequireAny>",
             "</RequireAll>",
+            "</Location>",
+        ]
+        # Generate the output as a list of lines removing the indentation and empty lines.
+        output = [line.strip() for line in generate(input, repo).readlines() if line.strip() != '']
+        self.assertListEqual(output, expected)
+
+    def test_permissions_asterisk_only(self):
+        repo = "testrepo"
+        input = [
+            "[/projectC]",
+            "* =",
+            "[/projectD]",
+            "* = x",
+        ]
+        expected = [
+            "<Location /svn/{}/projectC >".format(repo),
+            "Require all denied",
+            "</Location>",
+            "<Location /svn/{}/projectD >".format(repo),
+            "Require all denied",
             "</Location>",
         ]
         # Generate the output as a list of lines removing the indentation and empty lines.
@@ -154,12 +174,16 @@ class SvnAuthzSubTestCase(unittest.TestCase):
         input = [
             "[/qa]",
             "* =",
+            "@CmsUser = r",
             "[/qa/b/a]",
             "* =",
+            "@CmsUser = r",
             "[/qa/b]",
             "* =",
+            "@CmsUser = r",
             "[/qa/a]",
             "* =",
+            "@CmsUser = r",
         ]
         expected = [
             "<Location /svn/{}/qa >".format(repo),
@@ -167,11 +191,25 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "Require valid-user",
             "Require method OPTIONS",
             "</RequireAll>",
+            "<RequireAll>",
+            "Require valid-user",
+            "Require method GET PROPFIND OPTIONS REPORT",
+            "<RequireAny>",
+            "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsUser(,[^,]+)*$/",
+            "</RequireAny>",
+            "</RequireAll>",
             "</Location>",
             "<Location /svn/{}/qa/a >".format(repo),
             "<RequireAll>",
             "Require valid-user",
             "Require method OPTIONS",
+            "</RequireAll>",
+            "<RequireAll>",
+            "Require valid-user",
+            "Require method GET PROPFIND OPTIONS REPORT",
+            "<RequireAny>",
+            "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsUser(,[^,]+)*$/",
+            "</RequireAny>",
             "</RequireAll>",
             "</Location>",
             "<Location /svn/{}/qa/b >".format(repo),
@@ -179,11 +217,25 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "Require valid-user",
             "Require method OPTIONS",
             "</RequireAll>",
+            "<RequireAll>",
+            "Require valid-user",
+            "Require method GET PROPFIND OPTIONS REPORT",
+            "<RequireAny>",
+            "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsUser(,[^,]+)*$/",
+            "</RequireAny>",
+            "</RequireAll>",
             "</Location>",
             "<Location /svn/{}/qa/b/a >".format(repo),
             "<RequireAll>",
             "Require valid-user",
             "Require method OPTIONS",
+            "</RequireAll>",
+            "<RequireAll>",
+            "Require valid-user",
+            "Require method GET PROPFIND OPTIONS REPORT",
+            "<RequireAny>",
+            "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsUser(,[^,]+)*$/",
+            "</RequireAny>",
             "</RequireAll>",
             "</Location>",
         ]
