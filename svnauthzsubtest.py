@@ -1,5 +1,5 @@
 import unittest
-from svnauthzsub import generate
+from svnauthzsub import generate, validate
 
 
 class SvnAuthzSubTestCase(unittest.TestCase):
@@ -242,6 +242,29 @@ class SvnAuthzSubTestCase(unittest.TestCase):
         # Generate the output as a list of lines removing the indentation and empty lines.
         output = [line.strip() for line in generate(input, repo).readlines() if line.strip() != '']
         self.assertListEqual(output, expected)
+
+    def test_validate_paths(self):
+        # A valid section with valid path and roles
+        self.assertTrue(validate([
+            "[/projectA/B_C-D.E F/0]",
+            "* =",
+            "@CmsAdmin = rw",
+            "@CmsUserSuper = rw"
+        ]))
+        # A section with an invalid path
+        self.assertFalse(validate([
+            "[/projectÄ]",
+            "* =",
+            "@CmsAdmin = rw",
+            "@CmsUserSuper = rw"
+        ]))
+        # A section with an invalid role
+        self.assertFalse(validate([
+            "[/projectA]",
+            "* =",
+            "@CmsÄdmin = rw",
+            "@CmsUserSuper = rw"
+        ]))
 
 
 if __name__ == '__main__':

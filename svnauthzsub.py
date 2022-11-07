@@ -27,7 +27,9 @@
 
 import os
 import re
+import sys
 import stat
+import select
 import shutil
 import logging
 import argparse
@@ -48,13 +50,35 @@ OUTPUT_DIR = None
 INDENTATION = 2
 
 
+class ConfigParser(configparser.ConfigParser):
+    """A custom ConfigParser sub-class that ensures the option cases are preserved."""
+
+    def optionxform(self, optionstr):
+        return optionstr
+
+
+def validate(access_accs: str | list):
+    result = True
+    config_parser = ConfigParser()
+    config_parser.read_string(os.linesep.join(access_accs) if isinstance(access_accs, list) else access_accs)
+    paths = [section for section in config_parser.sections() if '/' in section]
+    for path in paths:
+        section = config_parser[path]
+        roles = [role for role in section if role.startswith('@')]
+        # Path may not contain extended characters as Apache doesn't support UTF8 locations
+        # Accept alphanumeric characters plus the following: _./ -
+        if not re.match("^([A-Za-z0-9_./ -]*)$", path, re.RegexFlag.MULTILINE):
+            logging.error("The path provided in Section [%s] contains invalid characters.", path)
+            result = False
+        # Group/Role may only contain alphanumeric characters plus the following: _-
+        for role in roles:
+            if not re.match("^@([A-Za-z0-9_-]*)$", role, re.RegexFlag.MULTILINE):
+                logging.error("The %s role provided in Section [%s] contains invalid characters.", role, path)
+                result = False
+    return result
+
+
 def generate(access_accs: str | list, repo):
-    class ConfigParser(configparser.ConfigParser):
-        """A custom ConfigParser sub-class that ensures the option cases are preserved."""
-
-        def optionxform(self, optionstr):
-            return optionstr
-
     def directive(name: str, content: str | list, parameters: str = None):
         result = "<{}{}>".format(name, " {} ".format(parameters) if parameters else "") + os.linesep
         if isinstance(content, list):
@@ -175,9 +199,11 @@ class Task(DaemonTask):
 
 def main():
     global OUTPUT_DIR
+    access_accs = None
 
     parser = argparse.ArgumentParser(description='An SvnPubSub client that monitors the access.accs and regenerates the apache config file.')
 
+    parser.add_argument('--validate', action='store_true', help='validate the access file provided via INPUT or through STDIN and exit')
     parser.add_argument('--input', help='process a local access.acss file, generate the configuration and exit')
     parser.add_argument('--repo', help='the repository name to use in combination with INPUT file as input')
     parser.add_argument('--output', help='the output file to write to when INPUT is supplied if not stdout')
@@ -197,24 +223,34 @@ def main():
     if args.input and not args.repo:
         parser.error('REPO is required when INPUT is supplied')
 
-    if args.input:
-        if not os.path.exists(args.input):
-            parser.error('Input file not found: {}'.format(args.input))
-        try:
+    try:
+        # The input has been provided through the --input argument
+        if args.input:
+            if not os.path.exists(args.input):
+                parser.error('Input file not found: {}'.format(args.input))
             with open(args.input, 'r') as input:
                 access_accs = input.read()
-                config = generate(access_accs=access_accs, repo=args.repo)
-                if args.output:
-                    with open(args.output, 'w') as output:
-                        shutil.copyfileobj(config, output)
-                else:
-                    print(config.read())
-                exit(0)
-        except Exception as e:
-            logging.error("%s", str(e))
-            exit(1)
-    elif not args.output_dir:
-        parser.error('OUTPUT_DIR must be provided')
+        # The input has been provided through stdin
+        elif select.select([sys.stdin, ], [], [], 0.0)[0]:
+            access_accs = sys.stdin.read()
+        # No explicit input has been provided, the OUTPUT_DIR becomes mandatory
+        elif not args.output_dir:
+            parser.error('OUTPUT_DIR must be provided')
+
+        # Process the access file provided through --input or stdin
+        if access_accs:
+            if args.validate:
+                exit(0 if validate(access_accs=access_accs) else 1)
+            config = generate(access_accs=access_accs, repo=args.repo)
+            if args.output:
+                with open(args.output, 'w') as output:
+                    shutil.copyfileobj(config, output)
+            else:
+                print(config.read())
+            exit(0)
+    except Exception as e:
+        logging.error("%s", str(e))
+        exit(1)
 
     if args.output_dir:
         OUTPUT_DIR = args.output_dir
