@@ -29,7 +29,6 @@ import os
 import re
 import sys
 import stat
-import select
 import shutil
 import logging
 import argparse
@@ -204,7 +203,8 @@ def main():
     parser = argparse.ArgumentParser(description='An SvnPubSub client that monitors the access.accs and regenerates the apache config file.')
 
     parser.add_argument('--validate', action='store_true', help='validate the access file provided via INPUT or through STDIN and exit')
-    parser.add_argument('--input', help='process a local access.acss file, generate the configuration and exit')
+    parser.add_argument('--stdin', action='store_true', help='read the access.acss file from stdin, generate the configuration or validate it and exit')
+    parser.add_argument('--input', help='process a local access.acss file, generate the configuration or validate it and exit')
     parser.add_argument('--repo', help='the repository name to use in combination with INPUT file as input')
     parser.add_argument('--output', help='the output file to write to when INPUT is supplied if not stdout')
     parser.add_argument('--output-dir', help='the path to place the generated apache configuration files')
@@ -220,8 +220,8 @@ def main():
 
     args = parser.parse_args()
 
-    if args.input and not args.repo:
-        parser.error('REPO is required when INPUT is supplied')
+    if (args.input or args.stdin) and not args.validate and not args.repo:
+        parser.error('--repo is required when --input or --stdin is used')
 
     try:
         # The input has been provided through the --input argument
@@ -231,12 +231,11 @@ def main():
             with open(args.input, 'r') as input:
                 access_accs = input.read()
         # The input has been provided through stdin
-        elif select.select([sys.stdin, ], [], [], 0.0)[0]:
+        elif args.stdin:
             access_accs = sys.stdin.read()
-        # No explicit input has been provided, the OUTPUT_DIR becomes mandatory
+        # No explicit input has been provided, the --output-dir becomes mandatory
         elif not args.output_dir:
-            parser.error('OUTPUT_DIR must be provided')
-
+            parser.error('--output-dir must be provided')
         # Process the access file provided through --input or stdin
         if access_accs:
             if args.validate:
