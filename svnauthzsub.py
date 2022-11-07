@@ -67,12 +67,12 @@ def validate(access_accs: str | list):
         roles = [role for role in section if role.startswith('@')]
         # Path may not contain extended characters as Apache doesn't support UTF8 locations
         # Accept alphanumeric characters plus the following: _./ -
-        if not re.match("^([A-Za-z0-9_./ -]*)$", path, re.RegexFlag.MULTILINE):
+        if not re.match("^([A-Za-z0-9_./ -]*)$", path):
             logging.error("The path provided in Section [%s] contains invalid characters.", path)
             result = False
         # Group/Role may only contain alphanumeric characters plus the following: _-
         for role in roles:
-            if not re.match("^@([A-Za-z0-9_-]*)$", role, re.RegexFlag.MULTILINE):
+            if not re.match("^@([A-Za-z0-9_-]*)$", role):
                 logging.error("The %s role provided in Section [%s] contains invalid characters.", role, path)
                 result = False
     return result
