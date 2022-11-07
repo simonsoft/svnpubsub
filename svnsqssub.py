@@ -39,7 +39,7 @@ from svnpubsub.util import execute
 
 PORT = 2069
 HOST = "127.0.0.1"
-REPO_EXCLUDES = []
+EXCLUDED_REPOS = []
 SVNBIN_DIR = "/usr/bin"
 SVNROOT_DIR = "/srv/cms/svn"
 SQS_MESSAGE_GROUP_ID = "commit"
@@ -90,26 +90,14 @@ class Job(BackgroundJob):
 class Task(DaemonTask):
 
     def __init__(self):
-        super().__init__(urls=["http://%s:%d/commits" % (HOST, PORT)])
+        super().__init__(urls=["http://%s:%d/commits" % (HOST, PORT)], excluded_repos=EXCLUDED_REPOS)
 
     def start(self):
         logging.info('Daemon started.')
 
     def commit(self, url: str, commit: Commit):
-        if commit.type != 'svn' or commit.format != 1:
-            logging.info("SKIP unknown commit format (%s.%d)", commit.type, commit.format)
-            return
-        logging.info("COMMIT r%d (%d paths) from %s" % (commit.id, len(commit.changed), url))
-
-        excluded = False
-        for repo in REPO_EXCLUDES:
-            if commit.repositoryname.startswith(repo):
-                logging.info('Commit in excluded repository, ignoring: %s' % commit.repositoryname)
-                excluded = True
-
-        if not excluded:
-            job = Job(commit)
-            self.worker.queue(job)
+        job = Job(commit)
+        self.worker.queue(job)
 
 
 def get_cloudid(repo, rev=0):
