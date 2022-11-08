@@ -17,21 +17,22 @@
 # limitations under the License.
 #
 #
-# SvnSQSSub - Subscribe to a SvnPubSub topic, posts commit events to AWS SQS.
+# svnsfnsub - Subscribe to a SvnPubSub topic, start a Step Functions execution for each changed item.
 #
 # Example:
-#  svnsqssub.py
+#  svnsfnsub.py
 #
-# On startup SvnSQSSub starts listening to commits in all repositories.
+# On startup svnsfnsub starts listening to commits in all repositories.
 #
-
 import os
 import re
 import stat
+import json
 import boto3
 import logging
 import argparse
 import svnpubsub.logger
+from io import StringIO
 from svnpubsub.client import Commit
 from svnpubsub.daemon import Daemon, DaemonTask
 from svnpubsub.bgworker import BackgroundJob
@@ -40,10 +41,8 @@ from botocore.exceptions import ClientError
 PORT = 2069
 HOST = "127.0.0.1"
 SSM_PREFIX = None
-EXCLUDED_REPOS = []
-SQS_MESSAGE_GROUP_ID = "commit"
-SQS_MESSAGE_ATTRIBUTES = {}
-SQS_QUEUES = {}
+DOMAIN = "simonsoftcms.se"
+ACCOUNT = None
 CLOUDID = {}
 
 
@@ -56,9 +55,7 @@ class Job(BackgroundJob):
         return True
 
     def run(self):
-        queue = None
-        cloudid = None
-        global CLOUDID, SQS_QUEUES, SQS_MESSAGE_GROUP_ID, SQS_MESSAGE_ATTRIBUTES
+        global ACCOUNT, DOMAIN, CLOUDID
         if isinstance(CLOUDID, str):
             cloudid = CLOUDID
         elif self.repo in CLOUDID and CLOUDID[self.repo]:
@@ -68,31 +65,39 @@ class Job(BackgroundJob):
         if not cloudid:
             logging.warning("Commit skipped.")
             return
-        sqs = boto3.resource('sqs')
-        for suffix, queues in SQS_QUEUES.items():
-            queue_name = "cms-{}-{}".format(cloudid, suffix)
-            if self.repo in queues:
-                queue = SQS_QUEUES[suffix][self.repo]
+        if ACCOUNT is None:
+            sts = boto3.client('sts')
+            response = sts.get_caller_identity()
+            ACCOUNT = response.get('Account')
+            if ACCOUNT:
+                logging.info("Account identifier retrieved: %s", ACCOUNT)
             else:
-                queue = SQS_QUEUES[suffix][self.repo] = sqs.get_queue_by_name(QueueName=queue_name)
+                logging.error("Failed to retrieve the account identifier.")
+                return
+        stepfunctions = boto3.client('stepfunctions')
+        for item, details in self.commit.changed.items():
+            name = "cms-{}-event-v1".format(cloudid)
+            state_machine_arn = "arn:aws:states:eu-west-1:{}:stateMachine:{}".format(ACCOUNT, name)
             try:
-                logging.debug("Posting r%d from %s to: %s", self.rev, self.repo, queue_name)
-                response = queue.send_message(
-                    MessageBody=self.commit.dumps(),
-                    MessageGroupId=SQS_MESSAGE_GROUP_ID,
-                    MessageAttributes=SQS_MESSAGE_ATTRIBUTES,
-                    MessageDeduplicationId="{}/r{}".format(self.repo, self.rev)
+                logging.debug("Starting a %s execution for: %s/%s (r%d)", name, self.repo, item, self.commit.id)
+                response = stepfunctions.start_execution(
+                    stateMachineArn=state_machine_arn,
+                    input=json.dumps({
+                        "action": "item-event",
+                        "userid": self.commit.committer,
+                        "itemid": "x-svn://{}.{}/svn/{}/{}?p={}".format(cloudid, DOMAIN, self.repo, encode(item), self.commit.id)
+                    })
                 )
-                logging.info("Posted r%d from %s to: %s", self.rev, self.repo, queue_name)
+                logging.info("Successfully started %d %s execution(s)", len(self.commit.changed.keys()), name)
                 logging.debug("Response: %s", response)
             except ClientError:
-                logging.exception("Exception occurred while sending a queue message.")
+                logging.exception("Exception occurred while starting an execution.")
 
 
 class Task(DaemonTask):
 
     def __init__(self):
-        super().__init__(urls=["http://%s:%d/commits" % (HOST, PORT)], excluded_repos=EXCLUDED_REPOS)
+        super().__init__(urls=["http://%s:%d/commits" % (HOST, PORT)])
 
     def start(self):
         logging.info('Daemon started.')
@@ -119,26 +124,53 @@ def get_cloudid(repo):
         return repo
 
 
-def main():
-    global CLOUDID, SSM_PREFIX, SQS_QUEUES
+def encode(path: str) -> str:
+    output = StringIO()
+    safe_characters = [
+        *[chr(x) for x in range(ord('a'), ord('z') + 1)],   # a-z
+        *[chr(x) for x in range(ord('A'), ord('Z') + 1)],   # A-Z
+        *[chr(x) for x in range(ord('0'), ord('9') + 1)],   # 0-9
+        # The following additions to safe rule was likely made by the Derby project:
+        # The 'safe' rule
+        '$', '-', '_', '.', '+',
+        # The 'extra' rule
+        '!', '*', '\'', '(', ')', ',',
+        # Special characters common to http: file: and ftp: URLs ('fsegment' and 'hsegment' rules)
+        '/', ':', '@', '&', '=',
+        # Added for Svnkit compatibility
+        '~',
+    ]
+    for i, c in enumerate(path):
+        if c in safe_characters:
+            output.write(c)
+        else:
+            output.write("".join(['%{:02X}'.format(byte) for byte in c.encode("utf-8")]))
+    output.seek(0)
+    return output.read()
 
-    parser = argparse.ArgumentParser(description='An SvnPubSub client that subscribes to a topic, posts commit events to AWS SQS.')
+
+def main():
+    global DOMAIN, CLOUDID, SSM_PREFIX
+
+    parser = argparse.ArgumentParser(description='An SvnPubSub client that subscribes to a topic, starts a Step Functions execution for each changed item.')
 
     parser.add_argument('--ssm-prefix', help='aws ssm prefix used to retrieve the CLOUDID from the parameter store')
     parser.add_argument('--cloudid', help='aws cloud-id which overrides retrieving it from ssm parameter store or repository name')
+    parser.add_argument('--domain', help='domain name used to build the payload itemid (default: %s)' % DOMAIN)
     parser.add_argument('--logfile', help='a filename for logging if stdout is not the desired output')
     parser.add_argument('--pidfile', help='the PID file where the process PID will be written to')
     parser.add_argument('--uid', help='switch to this UID before running')
     parser.add_argument('--gid', help='switch to this GID before running')
     parser.add_argument('--daemon', action='store_true', help='run as a background daemon')
     parser.add_argument('--umask', help='set this (octal) UMASK before running')
-    parser.add_argument('--queues', default=[], type=str, nargs='+', metavar='SUFFIX',
-                        help='one or more SQS queue suffix names to compile the queue names: "cms-CLOUDID-SUFFIX"')
     parser.add_argument('--log-level', type=int, default=logging.INFO,
                         help='log level (DEBUG: %d | INFO: %d | WARNING: %d | ERROR: %d | CRITICAL: %d) (default: %d)' %
                              (logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR, logging.CRITICAL, logging.INFO))
 
     args = parser.parse_args()
+
+    if args.domain:
+        DOMAIN = args.domain
 
     if args.cloudid:
         CLOUDID = args.cloudid
@@ -146,11 +178,6 @@ def main():
         SSM_PREFIX = args.ssm_prefix
     else:
         parser.error('Either CLOUDID or SSM_PREFIX must be provided')
-
-    if not len(args.queues):
-        parser.error('At least one SQS queue name suffix must be provided')
-    else:
-        SQS_QUEUES = {queue: {} for queue in args.queues}
 
     # In daemon mode, we let the daemonize module handle the pidfile.
     # Otherwise, we should write this (foreground) PID into the file.
