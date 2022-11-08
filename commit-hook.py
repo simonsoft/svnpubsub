@@ -104,7 +104,8 @@ def main(repo, revision):
     data['changed'].update(svnlook_changed(repo, revision))
     body = str.encode(json.dumps(data))
     do_put(body)
-    do_post_commit_webapp(body)
+    # Replaced by svnsfnsub
+    #do_post_commit_webapp(body)
 
 if __name__ == "__main__":
     if len(sys.argv) not in (3, 4):
