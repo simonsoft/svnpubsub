@@ -13,7 +13,7 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "@CmsAdmin = r",
         ]
         expected = [
-            "<Location /svn/{}/qa/readonly >".format(repo),
+            "<Location \"/svn/{}/qa/readonly\" >".format(repo),
             "<RequireAll>",
             "Require valid-user",
             "Require method OPTIONS",
@@ -42,7 +42,7 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "@CmsUser = rw",
         ]
         expected = [
-            "<Location /svn/{}/projectB >".format(repo),
+            "<Location \"/svn/{}/projectB\" >".format(repo),
             "<RequireAll>",
             "Require valid-user",
             "Require method OPTIONS",
@@ -70,10 +70,10 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "* = x",
         ]
         expected = [
-            "<Location /svn/{}/projectC >".format(repo),
+            "<Location \"/svn/{}/projectC\" >".format(repo),
             "Require all denied",
             "</Location>",
-            "<Location /svn/{}/projectD >".format(repo),
+            "<Location \"/svn/{}/projectD\" >".format(repo),
             "Require all denied",
             "</Location>",
         ]
@@ -90,7 +90,7 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "@CmsUser = r",
         ]
         expected = [
-            "<Location /svn/{} >".format(repo),
+            "<Location \"/svn/{}\" >".format(repo),
             "<RequireAll>",
             "Require valid-user",
             "Require method OPTIONS",
@@ -130,7 +130,7 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "@CmsUser = rw",
         ]
         expected = [
-            "<Location /svn/{}/projectA >".format(repo),
+            "<Location \"/svn/{}/projectA\" >".format(repo),
             "<RequireAll>",
             "Require valid-user",
             "Require method OPTIONS",
@@ -150,7 +150,7 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "</RequireAny>",
             "</RequireAll>",
             "</Location>",
-            "<Location /svn/{}/projectB >".format(repo),
+            "<Location \"/svn/{}/projectB\" >".format(repo),
             "<RequireAll>",
             "Require valid-user",
             "Require method OPTIONS",
@@ -186,7 +186,7 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "@CmsUser = r",
         ]
         expected = [
-            "<Location /svn/{}/qa >".format(repo),
+            "<Location \"/svn/{}/qa\" >".format(repo),
             "<RequireAll>",
             "Require valid-user",
             "Require method OPTIONS",
@@ -199,7 +199,7 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "</RequireAny>",
             "</RequireAll>",
             "</Location>",
-            "<Location /svn/{}/qa/a >".format(repo),
+            "<Location \"/svn/{}/qa/a\" >".format(repo),
             "<RequireAll>",
             "Require valid-user",
             "Require method OPTIONS",
@@ -212,7 +212,7 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "</RequireAny>",
             "</RequireAll>",
             "</Location>",
-            "<Location /svn/{}/qa/b >".format(repo),
+            "<Location \"/svn/{}/qa/b\" >".format(repo),
             "<RequireAll>",
             "Require valid-user",
             "Require method OPTIONS",
@@ -225,7 +225,7 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "</RequireAny>",
             "</RequireAll>",
             "</Location>",
-            "<Location /svn/{}/qa/b/a >".format(repo),
+            "<Location \"/svn/{}/qa/b/a\" >".format(repo),
             "<RequireAll>",
             "Require valid-user",
             "Require method OPTIONS",
