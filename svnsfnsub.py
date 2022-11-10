@@ -91,7 +91,7 @@ class Job(BackgroundJob):
             state_machine_arn = "arn:aws:states:eu-west-1:{}:stateMachine:{}".format(ACCOUNT, name)
             try:
                 logging.debug("%s a %s execution for: %s/%s (r%d)",
-                              "Restarting" if self.retrying else "Starting", name, self.repo, item, self.commit.id)
+                              "Retrying" if self.retrying else "Starting", name, self.repo, item, self.commit.id)
                 response = stepfunctions.start_execution(
                     stateMachineArn=state_machine_arn,
                     input=json.dumps({
@@ -111,7 +111,7 @@ class Job(BackgroundJob):
         failed = len(self.failed)
         succeeded = len(items) - failed
         if succeeded:
-            logging.info("Successfully %s %d %s execution(s)", "restarted" if self.retrying else "started", succeeded, name)
+            logging.info("Successfully started %d %s execution(s) for: r%d", succeeded, name, self.commit.id)
         if failed:
             if self.retrying < RETRIES:
                 logging.warning("Failed to start %d %s execution(s), will retry %d more time(s) every %d seconds.",
