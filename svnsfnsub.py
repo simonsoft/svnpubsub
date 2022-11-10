@@ -32,6 +32,7 @@ import boto3
 import logging
 import argparse
 import svnpubsub.logger
+from time import sleep
 from io import StringIO
 from svnpubsub.client import Commit
 from svnpubsub.daemon import Daemon, DaemonTask
@@ -44,9 +45,14 @@ SSM_PREFIX = None
 DOMAIN = "simonsoftcms.se"
 ACCOUNT = None
 CLOUDID = {}
+RETRY_DELAY = 30
+RETRIES = 3
 
 
 class Job(BackgroundJob):
+
+    failed = []
+    retrying = 0
 
     def __init__(self, commit: Commit):
         super().__init__(repo=commit.repositoryname, rev=commit.id, head=commit.id, commit=commit)
@@ -56,6 +62,10 @@ class Job(BackgroundJob):
 
     def run(self):
         global ACCOUNT, DOMAIN, CLOUDID
+        if self.failed:
+            self.retrying += 1
+        if self.retrying > RETRIES:
+            return
         if isinstance(CLOUDID, str):
             cloudid = CLOUDID
         elif self.repo in CLOUDID and CLOUDID[self.repo]:
@@ -75,11 +85,13 @@ class Job(BackgroundJob):
                 logging.error("Failed to retrieve the account identifier.")
                 return
         stepfunctions = boto3.client('stepfunctions')
-        for item, details in self.commit.changed.items():
+        items = self.failed if self.failed else self.commit.changed
+        for item in items:
             name = "cms-{}-event-v1".format(cloudid)
             state_machine_arn = "arn:aws:states:eu-west-1:{}:stateMachine:{}".format(ACCOUNT, name)
             try:
-                logging.debug("Starting a %s execution for: %s/%s (r%d)", name, self.repo, item, self.commit.id)
+                logging.debug("%s a %s execution for: %s/%s (r%d)",
+                              "Retrying" if self.retrying else "Starting", name, self.repo, item, self.commit.id)
                 response = stepfunctions.start_execution(
                     stateMachineArn=state_machine_arn,
                     input=json.dumps({
@@ -88,10 +100,26 @@ class Job(BackgroundJob):
                         "itemid": "x-svn://{}.{}/svn/{}/{}?p={}".format(cloudid, DOMAIN, self.repo, encode(item), self.commit.id)
                     })
                 )
-                logging.info("Successfully started %d %s execution(s)", len(self.commit.changed.keys()), name)
+                if item in self.failed:
+                    self.failed.remove(item)
+                logging.debug("Successfully started a %s execution for: %s/%s", name, self.repo, item)
                 logging.debug("Response: %s", response)
             except ClientError:
-                logging.exception("Exception occurred while starting an execution.")
+                logging.exception("Exception occurred while starting an execution:")
+                if item not in self.failed:
+                    self.failed.append(item)
+        failed = len(self.failed)
+        succeeded = len(items) - failed
+        if succeeded:
+            logging.info("Successfully started %d %s execution(s) for: r%d", succeeded, name, self.commit.id)
+        if failed:
+            if self.retrying < RETRIES:
+                logging.warning("Failed to start %d %s execution(s), will retry %d more time(s) every %d seconds.",
+                                failed, name, RETRIES - self.retrying, RETRY_DELAY)
+                sleep(RETRY_DELAY)
+                self.run()
+            else:
+                logging.error("Failed to start %d %s execution(s) after %d retries.", failed, name, RETRIES)
 
 
 class Task(DaemonTask):
