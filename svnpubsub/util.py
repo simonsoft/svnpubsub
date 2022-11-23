@@ -39,7 +39,7 @@ except AttributeError:
         return output
 
 
-def execute(*args):
+def execute(*args, text=True):
     stdout = []
     stderr = []
     process = None
@@ -48,18 +48,21 @@ def execute(*args):
     logging.debug("Running: %s", " ".join(arguments))
 
     try:
-        process = __subprocess.Popen(arguments, text=True, universal_newlines=True,
+        process = __subprocess.Popen(arguments, text=text, universal_newlines=text,
                                      stdout=__subprocess.PIPE, stderr=__subprocess.PIPE)
         process.wait()
-        for line in process.stdout.readlines():
-            stdout.append(line.rstrip())
-        for line in process.stderr.readlines():
-            stderr.append(line.rstrip())
-        logging.debug(os.linesep.join(stdout))
+        if text:
+            for line in process.stdout.readlines():
+                stdout.append(line.rstrip())
+            for line in process.stderr.readlines():
+                stderr.append(line.rstrip())
+            logging.debug(os.linesep.join(stdout))
         if process.returncode:
             raise __subprocess.CalledProcessError(process.returncode, process.args, process.stdout, process.stderr)
     except Exception:
         _, value, traceback = sys.exc_info()
+        if not text:
+            stderr.extend(line.decode('utf-8').rstrip() for line in process.stderr.readlines())
         raise RuntimeError(os.linesep.join(stderr)).with_traceback(traceback)
 
-    return process, os.linesep.join(stdout), os.linesep.join(stderr)
+    return process, os.linesep.join(stdout) if text else process.stdout.read(), os.linesep.join(stderr) if text else process.stderr.read()
