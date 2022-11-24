@@ -120,11 +120,11 @@ def generate(access_accs: str | list, repo):
         output.write(location(path, [
             require("all denied")   # Special case when the only entry in a section is a "* = " statement
         ] if len(permissions) == 1 and list(permissions.values())[0] == ['*'] else [
-            # Add the common OPTIONS section
+            # Add the OPTIONS section (Only for repository root)
             require_all([
                 require("valid-user"),
-                require("method OPTIONS")
-            ]),
+                require("method OPTIONS MERGE")
+            ]) if path == '/' else '',
             # Add the Read-Only section
             require_all([
                 require("valid-user"),
