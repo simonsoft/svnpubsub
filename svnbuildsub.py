@@ -17,7 +17,7 @@
 # limitations under the License.
 #
 #
-# svnbuildsub - Subscribe to a SvnPubSub topic, start a CodeBuild build upon changes in theme repositories.
+# svnbuildsub - Subscribe to a SvnPubSub topic, start a CodeBuild build upon changes in *-application repositories.
 #
 # Example:
 #  svnbuildsub.py
@@ -28,26 +28,21 @@ import io
 import os
 import re
 import stat
-import json
 import zipfile
 
 import boto3
 import logging
 import argparse
 import svnpubsub.logger
-from time import sleep
-from io import StringIO
 from svnpubsub.util import execute
 from svnpubsub.client import Commit
 from svnpubsub.daemon import Daemon, DaemonTask
 from svnpubsub.bgworker import BackgroundJob
-from botocore.exceptions import ClientError
 
 PORT = 2069
 HOST = "127.0.0.1"
 BUCKET = "cms-codebuild-source"
 SSM_PREFIX = "/cms/"
-DOMAIN = "simonsoftcms.se"
 SVNBIN_DIR = "/usr/bin"
 ACCOUNT = None
 RETRY_DELAY = 30
@@ -73,12 +68,12 @@ class Job(BackgroundJob):
             return
         if ACCOUNT is None:
             ACCOUNT = get_account_identifier()
-        # if not re.match('^[a-z0-9-]{1,20}-application$', self.repo):
-        #     logging.debug("Repository name mismatch: Commit skipped.")
-        #     return
-        # if re.match('^(WIP)|(wip):?', self.commit.log):
-        #     logging.debug("WIP: Commit skipped.")
-        #     return
+        if not re.match('^[a-z0-9-]{1,20}-application$', self.repo):
+            logging.debug("Repository name mismatch: Commit skipped.")
+            return
+        if re.match('^(WIP)|(wip):?', self.commit.log):
+            logging.debug("WIP: Commit skipped.")
+            return
         """
         changes = {
             "demo-dev": {
@@ -107,20 +102,34 @@ class Job(BackgroundJob):
                 for qname in change[path2]:
                     zip_buffer = io.BytesIO()
                     folder = os.path.join(cloudid, path2, qname)
-                    files = svn_list(repo=self.repo, rev=self.rev, path=folder)
-                    for file in files:
-                        path = os.path.join(folder, file)
-                        data = svn_cat(repo=self.repo, rev=self.rev, path=path)
-                        if data is not None:
-                            add_to_archive(file=zip_buffer, path=os.path.relpath(path, folder), data=data)
-                    key = "v1/{}/{}/{}.zip".format(cloudid, path2, qname)
-                    upload_file(file=zip_buffer, bucket=BUCKET, key=key)
-                    path, parameters = get_build_names(cloudid=cloudid, path2=path2, qname=qname)
-                    if parameters is None:
-                        logging.error("Failed to retrieve the build names from: %s", path)
+                    logging.debug("Processing: %s", folder)
+                    try:
+                        files = svn_list(repo=self.repo, rev=self.rev, path=folder)
+                        for file in files:
+                            path = os.path.join(folder, file)
+                            data = svn_cat(repo=self.repo, rev=self.rev, path=path)
+                            if data is not None:
+                                add_to_archive(file=zip_buffer, path=os.path.relpath(path, folder), data=data)
+                        key = "v1/{}/{}/{}.zip".format(cloudid, path2, qname)
+                        version = upload_file(file=zip_buffer, bucket=BUCKET, key=key)
+                        if not version:
+                            logging.error("Failed to upload or retrieve the uploaded file version: %s/%s", BUCKET, key)
+                            continue
+                        path, parameters = get_build_names(cloudid=cloudid, path2=path2, qname=qname)
+                        if parameters is None:
+                            logging.error("Failed to retrieve the build names from: %s", path)
+                            continue
+                        for parameter in parameters:
+                            _, project = os.path.split(parameter)
+                            response = start_build(project=project, version=version)
+                            build = response.get('build', {}).get('id')
+                            if build:
+                                logging.info("Build triggered: %s", build)
+                            else:
+                                logging.error("Failed to trigger a start build for: %s", project)
+                    except Exception:
+                        logging.exception("Exception while processing: %s", folder)
                         continue
-                    for parameter in parameters:
-                        _, name = os.path.split(parameter)
 
 
 class Task(DaemonTask):
@@ -173,8 +182,8 @@ def add_to_archive(file, path, data):
 
 
 def get_account_identifier():
-    sts = boto3.client('sts')
-    response = sts.get_caller_identity()
+    client = boto3.client('sts')
+    response = client.get_caller_identity()
     account = response.get('Account')
     if account:
         logging.info("Account identifier retrieved: %s", account)
@@ -185,35 +194,51 @@ def get_account_identifier():
 
 def get_build_names(cloudid, path2, qname):
     global SSM_PREFIX
-    ssm = boto3.client('ssm')
+    client = boto3.client('ssm')
     path = os.path.join(SSM_PREFIX, cloudid, 'application', path2, qname, 'codebuild')
-    try:
-        response = ssm.get_parameters_by_path(Path=path, Recursive=False)
-        return path, [parameter['Name'] for parameter in response.get('Parameters', []) if parameter.get('Value') == 'true']
-    except Exception as e:
-        return path, None
+    logging.debug("Retrieving SSM parameter: %s", path)
+    response = client.get_parameters_by_path(Path=path, Recursive=False)
+    return path, [parameter['Name'] for parameter in response.get('Parameters', []) if parameter.get('Value') == 'true']
 
 
-def upload_file(file, bucket, key):
+def start_build(project, version):
+    client = boto3.client('codebuild')
+    logging.debug("Starting Codebuild build: %s (sourceVersion: %s)", project, version)
+    response = client.start_build(
+        projectName=project,
+        sourceVersion=version
+    )
+    return response
+
+
+def upload_file(file, bucket, key) -> str:
     """Uploads a file to the S3 storage from a physical file name or a file-like object
     Args:
         file (string/Fileobj): A physical file name or a fileobj (actual file or file-like object)
         bucket (string): The name of the destination S3 bucket
         key (string): The destination key on the destination bucket on the S3 storage
+    Returns:
+        The uploaded file's VersionId.
     """
-    s3_client = boto3.client('s3')
+    client = boto3.client('s3')
     if isinstance(file, str):
-        s3_client.upload_file(file, bucket, key)
+        client.upload_file(file, bucket, key)
     else:
         file.seek(0)
-        s3_client.upload_fileobj(file, bucket, key)
-    logging.info("Uploaded: %s/%s", bucket, key)
+        client.upload_fileobj(file, bucket, key)
+    response = client.get_object(
+        Bucket=bucket,
+        Key=key
+    )
+    version = response.get('VersionId')
+    logging.info("File uploaded: %s/%s (VersionId: %s)", bucket, key, version)
+    return version
 
 
 def main():
     global HOST, BUCKET, SSM_PREFIX, SVNBIN_DIR
 
-    parser = argparse.ArgumentParser(description='An SvnPubSub client that subscribes to a topic, starts a Step Functions execution for each changed item.')
+    parser = argparse.ArgumentParser(description='An SvnPubSub client that subscribes to a topic, starts a CodeBuild build upon changes in *-application repositories.')
 
     parser.add_argument('--host', help='host name used to subscribe to events (default: %s)' % HOST)
     parser.add_argument('--bucket', help='the s3 bucket name where the qname archive is uploaded (default: %s)' % BUCKET)
