@@ -46,14 +46,9 @@ SSM_PREFIX = "/cms/"
 REPO_REGEX = "^[a-z0-9-]{1,20}-application$"
 SVNBIN_DIR = "/usr/bin"
 ACCOUNT = None
-RETRY_DELAY = 30
-RETRIES = 3
 
 
 class Job(BackgroundJob):
-
-    failed = []
-    retrying = 0
 
     def __init__(self, commit: Commit):
         super().__init__(repo=commit.repositoryname, rev=commit.id, head=commit.id, commit=commit)
@@ -63,10 +58,6 @@ class Job(BackgroundJob):
 
     def run(self):
         global ACCOUNT, HOST, BUCKET, REPO_REGEX
-        if self.failed:
-            self.retrying += 1
-        if self.retrying > RETRIES:
-            return
         if ACCOUNT is None:
             ACCOUNT = get_account_identifier()
         if not re.match(REPO_REGEX, self.repo):
@@ -85,8 +76,7 @@ class Job(BackgroundJob):
         }
         """
         changes = {}
-        items = self.failed if self.failed else self.commit.changed
-        for item in items:
+        for item in self.commit.changed:
             # Format: cloudid/path2/qname/...
             # Example: demo-dev/DocumentTypes/se.simonsoft.bogus/repos.txt
             matches = re.match('^/?([a-z0-9-]{1,20})/(.+)/([a-z0-9.-]+)/', item)
