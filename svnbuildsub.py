@@ -43,6 +43,7 @@ PORT = 2069
 HOST = "127.0.0.1"
 BUCKET = "cms-codebuild-source"
 SSM_PREFIX = "/cms/"
+REPO_REGEX = "^[a-z0-9-]{1,20}-application$"
 SVNBIN_DIR = "/usr/bin"
 ACCOUNT = None
 RETRY_DELAY = 30
@@ -61,14 +62,14 @@ class Job(BackgroundJob):
         return True
 
     def run(self):
-        global ACCOUNT, HOST, BUCKET
+        global ACCOUNT, HOST, BUCKET, REPO_REGEX
         if self.failed:
             self.retrying += 1
         if self.retrying > RETRIES:
             return
         if ACCOUNT is None:
             ACCOUNT = get_account_identifier()
-        if not re.match('^[a-z0-9-]{1,20}-application$', self.repo):
+        if not re.match(REPO_REGEX, self.repo):
             logging.debug("Repository name mismatch: Commit skipped.")
             return
         if re.match('^(WIP)|(wip):?', self.commit.log):
@@ -236,13 +237,14 @@ def upload_file(file, bucket, key) -> str:
 
 
 def main():
-    global HOST, BUCKET, SSM_PREFIX, SVNBIN_DIR
+    global HOST, BUCKET, SSM_PREFIX, REPO_REGEX, SVNBIN_DIR
 
     parser = argparse.ArgumentParser(description='An SvnPubSub client that subscribes to a topic, starts a CodeBuild build upon changes in *-application repositories.')
 
     parser.add_argument('--host', help='host name used to subscribe to events (default: %s)' % HOST)
     parser.add_argument('--bucket', help='the s3 bucket name where the qname archive is uploaded (default: %s)' % BUCKET)
     parser.add_argument('--ssm-prefix', help='aws ssm prefix used to retrieve the parameters from the parameter store')
+    parser.add_argument('--repo-regex', help='the regex pattern used to recognize the applicable repo names (default: %s)' % REPO_REGEX)
     parser.add_argument('--logfile', help='a filename for logging if stdout is not the desired output')
     parser.add_argument('--pidfile', help='the PID file where the process PID will be written to')
     parser.add_argument('--uid', help='switch to this UID before running')
@@ -262,6 +264,8 @@ def main():
         BUCKET = args.bucket
     if args.ssm_prefix:
         SSM_PREFIX = args.ssm_prefix
+    if args.repo_regex:
+        REPO_REGEX = args.repo_regex
     if args.svnbin:
         SVNBIN_DIR = args.svnbin
 
