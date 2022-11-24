@@ -111,6 +111,16 @@ class Job(BackgroundJob):
                             data = svn_cat(repo=self.repo, rev=self.rev, path=path)
                             if data is not None:
                                 add_to_archive(file=zip_buffer, path=os.path.relpath(path, folder), data=data)
+                        # Add the revision as svnrevision.txt
+                        add_to_archive(file=zip_buffer, path='svnrevision.txt', data="{}{}".format(self.rev, os.linesep).encode())
+                        # Add the deploy:abx-secret property value as deploysecret.txt
+                        secret = svn_propget(self.repo, os.path.join(cloudid, path2), 'deploy:abx-secret')
+                        if secret:
+                            add_to_archive(file=zip_buffer, path='deploysecret.txt', data=secret)
+                        # Add the deploy:abx-suffix property value as deploysuffix.txt
+                        suffix = svn_propget(self.repo, os.path.join(cloudid, path2), 'deploy:abx-suffix')
+                        if suffix:
+                            add_to_archive(file=zip_buffer, path='deploysuffix.txt', data=suffix)
                         key = "v1/{}/{}/{}.zip".format(cloudid, path2, qname)
                         version = upload_file(file=zip_buffer, bucket=BUCKET, key=key)
                         if not version:
@@ -173,6 +183,21 @@ def svn_cat(repo, rev, path):
         return stdout
     except Exception as e:
         logging.warning("%s, failed to retrieve the contents of the file at: %s/%s", str(e), repo, path)
+        return None
+
+
+def svn_propget(repo, path, property):
+    global SVNBIN_DIR, HOST
+    arguments = [
+        os.path.join(SVNBIN_DIR, 'svn'),
+        'propget', property,
+        str.format('https://{}/svn/{}/{}', HOST, repo, path)
+    ]
+    try:
+        _, stdout, _ = execute(*arguments, text=False)
+        return stdout
+    except Exception as e:
+        logging.warning("%s, failed to retrieve the %s property from: %s/%s", str(e), property, repo, path)
         return None
 
 
