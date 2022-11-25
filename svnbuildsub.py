@@ -61,10 +61,10 @@ class Job(BackgroundJob):
         if ACCOUNT is None:
             ACCOUNT = get_account_identifier()
         if not re.match(REPO_REGEX, self.repo):
-            logging.debug("Repository name does not match an application repo: Commit skipped.")
+            logging.info("Repository name does not match an application repo: Commit skipped.")
             return
         if re.match('^(WIP)|(wip):?', self.commit.log):
-            logging.debug("WIP: Commit skipped.")
+            logging.info("WIP: Commit skipped.")
             return
         """
         The changes will be collected and structured in the following form:
@@ -89,13 +89,14 @@ class Job(BackgroundJob):
                 changes[cloudid] = changes.get(cloudid, {})
                 changes[cloudid][path2] = changes[cloudid].get(path2, set())
                 changes[cloudid][path2].add(qname)
+                logging.info("Changed: %s/%s",  self.repo, item)
 
         for cloudid, change in changes.items():
             for path2 in change:
                 for qname in change[path2]:
                     zip_buffer = io.BytesIO()
                     folder = os.path.join(cloudid, path2, qname)
-                    logging.debug("Processing: %s", folder)
+                    logging.info("Processing: %s", folder)
                     try:
                         files = svn_list(repo=self.repo, rev=self.rev, path=folder)
                         for file in files:
