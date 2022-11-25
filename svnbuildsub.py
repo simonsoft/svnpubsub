@@ -61,12 +61,14 @@ class Job(BackgroundJob):
         if ACCOUNT is None:
             ACCOUNT = get_account_identifier()
         if not re.match(REPO_REGEX, self.repo):
-            logging.debug("Repository name mismatch: Commit skipped.")
+            logging.debug("Repository name does not match an application repo: Commit skipped.")
             return
         if re.match('^(WIP)|(wip):?', self.commit.log):
             logging.debug("WIP: Commit skipped.")
             return
         """
+        The changes will be collected and structured in the following form:
+
         changes = {
             "demo-dev": {
                 "DocumentTypes": [
