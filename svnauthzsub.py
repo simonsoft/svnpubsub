@@ -123,7 +123,7 @@ def generate(access_accs: str | list, repo):
             # Add the common OPTIONS section
             require_all([
                 require("valid-user"),
-                require("method OPTIONS")
+                require("method OPTIONS MERGE")
             ]),
             # Add the Read-Only section
             require_all([
