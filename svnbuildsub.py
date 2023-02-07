@@ -63,8 +63,8 @@ class Job(BackgroundJob):
         if not re.match(REPO_REGEX, self.repo):
             logging.info("Repository name does not match an application repo: Commit skipped.")
             return
-        if re.match('^(WIP)|(wip):?', self.commit.log):
-            logging.info("WIP: Commit skipped.")
+        if not re.match('^([Bb]uild)?', self.commit.log):
+            logging.info("Commit skipped.")
             return
         """
         The changes will be collected and structured in the following form:
