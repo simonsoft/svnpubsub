@@ -40,7 +40,8 @@ from svnpubsub.daemon import Daemon, DaemonTask
 from svnpubsub.bgworker import BackgroundJob
 
 PORT = 2069
-HOST = "127.0.0.1:8091" # Use the same host as indexing.
+PORTSVN = 8091 # Use the same vhost as indexing.
+HOST = "127.0.0.1"
 BUCKET = "cms-codebuild-source"
 SSM_PREFIX = "/cms/"
 REPO_REGEX = "^[a-z0-9-]{1,20}-application$"
@@ -154,7 +155,7 @@ def svn_list(repo, rev, path):
     arguments = [
         os.path.join(SVNBIN_DIR, 'svn'),
         'list', '-r', str(rev), '--depth', 'infinity',
-        str.format('http://{}/svn/{}/{}', HOST, repo, path)
+        str.format('http://{}:{}/svn/{}/{}', HOST, PORTSVN, repo, path)
     ]
     try:
         _, stdout, _ = execute(*arguments)
@@ -169,7 +170,7 @@ def svn_cat(repo, rev, path):
     arguments = [
         os.path.join(SVNBIN_DIR, 'svn'),
         'cat', '-r', str(rev),
-        str.format('http://{}/svn/{}/{}', HOST, repo, path)
+        str.format('http://{}:{}/svn/{}/{}', HOST, PORTSVN, repo, path)
     ]
     try:
         _, stdout, _ = execute(*arguments, text=False)
@@ -184,7 +185,7 @@ def svn_propget(repo, path, property):
     arguments = [
         os.path.join(SVNBIN_DIR, 'svn'),
         'propget', property,
-        str.format('http://{}/svn/{}/{}', HOST, repo, path)
+        str.format('http://{}:{}/svn/{}/{}', HOST, PORTSVN, repo, path)
     ]
     try:
         _, stdout, _ = execute(*arguments, text=False)
