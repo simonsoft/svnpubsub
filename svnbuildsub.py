@@ -101,10 +101,11 @@ class Job(BackgroundJob):
                     try:
                         files = svn_list(repo=self.repo, rev=self.rev, path=folder)
                         for file in files:
-                            path = os.path.join(folder, file)
-                            data = svn_cat(repo=self.repo, rev=self.rev, path=path)
-                            if data is not None:
-                                add_to_archive(file=zip_buffer, path=os.path.relpath(path, folder), data=data)
+                            if not file.endswith('/'):
+                                path = os.path.join(folder, file)
+                                data = svn_cat(repo=self.repo, rev=self.rev, path=path)
+                                if data is not None:
+                                    add_to_archive(file=zip_buffer, path=os.path.relpath(path, folder), data=data)
                         # Add the revision as svnrevision.txt
                         add_to_archive(file=zip_buffer, path='svnrevision.txt', data="{}{}".format(self.rev, os.linesep).encode())
                         # Add the deploy:abx-secret property value as deploysecret.txt
