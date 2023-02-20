@@ -50,7 +50,7 @@ def execute(*args, text=True):
     try:
         process = __subprocess.Popen(arguments, text=text, universal_newlines=text,
                                      stdout=__subprocess.PIPE, stderr=__subprocess.PIPE)
-        process.wait()
+        process.communicate() # TODO: add timeout (maybe 30s) and catch TimeoutExpired exception (log and rethrow?)
         if text:
             for line in process.stdout.readlines():
                 stdout.append(line.rstrip())
