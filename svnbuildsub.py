@@ -105,17 +105,17 @@ class Job(BackgroundJob):
                                 path = os.path.join(folder, file)
                                 data = svn_cat(repo=self.repo, rev=self.rev, path=path)
                                 if data is not None:
-                                    add_to_archive(file=zip_buffer, path=os.path.relpath(path, folder), data=data)
+                                    add_to_archive(file=zip_buffer, path=os.path.relpath(path, folder), data=data, root=qname)
                         # Add the revision as svnrevision.txt
-                        add_to_archive(file=zip_buffer, path='svnrevision.txt', data="{}{}".format(self.rev, os.linesep).encode())
+                        add_to_archive(file=zip_buffer, path='svnrevision.txt', data="{}{}".format(self.rev, os.linesep).encode(), root=qname)
                         # Add the deploy:abx-secret property value as deploysecret.txt
                         secret = svn_propget(self.repo, os.path.join(cloudid, path2), 'deploy:abx-secret')
                         if secret:
-                            add_to_archive(file=zip_buffer, path='deploysecret.txt', data=secret)
+                            add_to_archive(file=zip_buffer, path='deploysecret.txt', data=secret, root=qname)
                         # Add the deploy:abx-suffix property value as deploysuffix.txt
                         suffix = svn_propget(self.repo, os.path.join(cloudid, path2), 'deploy:abx-suffix')
                         if suffix:
-                            add_to_archive(file=zip_buffer, path='deploysuffix.txt', data=suffix)
+                            add_to_archive(file=zip_buffer, path='deploysuffix.txt', data=suffix, root=qname)
                         key = "v1/{}/{}/{}.zip".format(cloudid, path2, qname)
                         version = upload_file(file=zip_buffer, bucket=BUCKET, key=key)
                         if not version:
@@ -196,7 +196,8 @@ def svn_propget(repo, path, property):
         return None
 
 
-def add_to_archive(file, path, data):
+def add_to_archive(file, path, data, root=''):
+    path = os.path.join(root, path)
     with zipfile.ZipFile(file, 'a', zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(path, data)
         logging.debug("Archived: %s", path)
