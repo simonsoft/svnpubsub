@@ -51,14 +51,11 @@ def execute(*args, text=True):
         process = __subprocess.Popen(arguments, text=text, universal_newlines=text,
                                      stdout=__subprocess.PIPE, stderr=__subprocess.PIPE)
         if text:
-            # Do we need process.wait()?. Could probably cause deadlock if text from stdout is long.
             for line in process.stdout.readlines():
                 stdout.append(line.rstrip())
             for line in process.stderr.readlines():
                 stderr.append(line.rstrip())
             logging.debug(os.linesep.join(stdout))
-        else:
-            process.communicate() # TODO: add timeout (maybe 30s) and catch TimeoutExpired exception (log and rethrow?)
         if process.returncode:
             raise __subprocess.CalledProcessError(process.returncode, process.args, process.stdout, process.stderr)
     except Exception:
@@ -66,5 +63,4 @@ def execute(*args, text=True):
         if not text:
             stderr.extend(line.decode('utf-8').rstrip() for line in process.stderr.readlines())
         raise RuntimeError(os.linesep.join(stderr)).with_traceback(traceback)
-
     return process, os.linesep.join(stdout) if text else process.stdout.read(), os.linesep.join(stderr) if text else process.stderr.read()
