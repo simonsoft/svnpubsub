@@ -82,7 +82,7 @@ class Job(BackgroundJob):
         for item in self.commit.changed:
             # Format: cloudid/path2/qname/...
             # Example: demo-dev/DocumentTypes/se.simonsoft.bogus/repos.txt
-            matches = re.match('^/?([a-z0-9-]{1,20})/(.+)/([a-z0-9.-]+)/', item)
+            matches = re.match('^/?([a-z0-9-]{1,20})/([^/]+)/([a-z0-9.-]+)/', item)
             if matches and len(matches.groups()) == 3:
                 cloudid = matches.group(1)
                 path2 = matches.group(2)
