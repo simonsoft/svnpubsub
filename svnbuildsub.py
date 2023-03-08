@@ -64,7 +64,7 @@ class Job(BackgroundJob):
         if not re.match(REPO_REGEX, self.repo):
             logging.info("Repository name does not match an application repo: Commit skipped.")
             return
-        if not re.match('^(?:[Bb]uild[: ])?', self.commit.log):
+        if not re.search('^([Bb]uild:)|([Dd]eploy:)', self.commit.log):
             logging.info("Commit skipped.")
             return
         """
