@@ -70,6 +70,7 @@ class Job(BackgroundJob):
             return
         sqs = boto3.resource('sqs')
         for suffix, queues in SQS_QUEUES.items():
+            fifo = suffix.endswith('.fifo')
             queue_name = "cms-{}-{}".format(cloudid, suffix)
             if self.repo in queues:
                 queue = SQS_QUEUES[suffix][self.repo]
@@ -77,12 +78,14 @@ class Job(BackgroundJob):
                 queue = SQS_QUEUES[suffix][self.repo] = sqs.get_queue_by_name(QueueName=queue_name)
             try:
                 logging.debug("Posting r%d from %s to: %s", self.rev, self.repo, queue_name)
-                response = queue.send_message(
-                    MessageBody=self.commit.dumps(),
-                    MessageGroupId=SQS_MESSAGE_GROUP_ID,
-                    MessageAttributes=SQS_MESSAGE_ATTRIBUTES,
-                    MessageDeduplicationId="{}/r{}".format(self.repo, self.rev)
-                )
+                message = {
+                    'MessageBody': self.commit.dumps(),
+                    'MessageAttributes': SQS_MESSAGE_ATTRIBUTES,
+                }
+                if fifo:
+                    message['MessageGroupId'] = SQS_MESSAGE_GROUP_ID
+                    message['MessageDeduplicationId'] = "{}/r{}".format(self.repo, self.rev)
+                response = queue.send_message(**message)
                 logging.info("Posted r%d from %s to: %s", self.rev, self.repo, queue_name)
                 logging.debug("Response: %s", response)
             except ClientError:
