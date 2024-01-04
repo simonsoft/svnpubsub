@@ -62,10 +62,10 @@ class Job(BackgroundJob):
         if ACCOUNT is None:
             ACCOUNT = get_account_identifier()
         if not re.match(REPO_REGEX, self.repo):
-            logging.info("Repository name does not match an application repo: Commit skipped.")
+            logging.info("Commit skipped: Repository name does not match an application repo.")
             return
         if not re.search('^([Bb]uild:)|([Dd]eploy:)', self.commit.log):
-            logging.info("Commit skipped.")
+            logging.info("Commit skipped: History comment does not request build / deploy.")
             return
         """
         The changes will be collected and structured in the following form:
