@@ -16,7 +16,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-
 #
 # SvnDumpSub - Subscribe to a SvnPubSub stream, dumps commits, zips and uploads them to AWS S3.
 #
@@ -26,17 +25,12 @@
 # On startup SvnDumpSub starts listening to commits in all repositories.
 #
 
-from io import BytesIO
-import subprocess
 import threading
 import sys
 import stat
 import os
-import tempfile
-import re
-import json
-import socket
 import boto3
+import re
 import logging.handlers
 try:
   import queue
@@ -47,34 +41,18 @@ import optparse
 import daemonize
 import svnpubsub.client
 import svnpubsub.util
+from svnpubsub.util import execute
+from io import BytesIO
 
 HOST = "127.0.0.1"
 PORT = 2069
-#Will not handle commits if repo starts with any name icluded in REPO_EXCLUDES
+# Will not handle commits if repo starts with any name included in REPO_EXCLUDES
 REPO_EXCLUDES = ['demo', 'repo']
+# Start logging warnings if the work backlog reaches this many items
+BACKLOG_TOO_HIGH = 500
 
 s3client = boto3.client('s3')
 
-assert hasattr(subprocess, 'check_call')
-
-def check_call(*args, **kwds):
-    """Wrapper around subprocess.check_call() that logs stderr upon failure,
-    with an optional list of exit codes to consider non-failure."""
-    assert 'stderr' not in kwds
-    if '__okayexits' in kwds:
-        __okayexits = kwds['__okayexits']
-        del kwds['__okayexits']
-    else:
-        __okayexits = set([0]) # EXIT_SUCCESS
-    kwds.update(stderr=subprocess.PIPE)
-    pipe = subprocess.Popen(*args, **kwds)
-    output, errput = pipe.communicate()
-    if pipe.returncode not in __okayexits:
-        cmd = args[0] if len(args) else kwds.get('args', '(no command)')
-        logging.error('Command failed: returncode=%d command=%r stderr=%r',
-                      pipe.returncode, cmd, errput)
-        raise subprocess.CalledProcessError(pipe.returncode, args)
-    return pipe.returncode # is EXIT_OK
 
 class Job(object):
 
@@ -86,14 +64,14 @@ class Job(object):
         self.shard_size = 'shard0'
 
     def get_key(self, rev):
-        #/v1/Cloudid/reponame/shardX/0000001000/reponame-0000001000.svndump.gz
+        # /v1/Cloudid/reponame/shardX/0000001000/reponame-0000001000.svndump.gz
         return '%s/%s' % (self._get_s3_base(rev = rev), self.get_name(rev))
 
     def get_name(self, rev):
         revStr = str(rev)
         revStr = revStr.zfill(10)
         name = self.repo + '-' + revStr + '.svndump.gz'
-        #reponame-0000001000.svndump.gz
+        # reponame-0000001000.svndump.gz
         return name
 
     def _get_s3_base(self, rev):
@@ -113,10 +91,9 @@ class Job(object):
         #svnadmin dump --incremental --deltas /srv/cms/svn/demo1 -r 237:237
         return [SVNADMIN, 'dump', '--incremental', '--deltas', path, dump_rev]
 
-
-    #def _get_aws_cp_args(self, rev):
-    #    # aws s3 cp - s3://cms-review-jandersson/v1/jandersson/demo1/shard0/0000000000/demo1-0000000363.svndump.gz
-    #    return [AWS, 's3', 'cp', '-', 's3://%s/%s' % (BUCKET, self.get_key(rev))]
+    # def _get_aws_cp_args(self, rev):
+    #     # aws s3 cp - s3://cms-review-jandersson/v1/jandersson/demo1/shard0/0000000000/demo1-0000000363.svndump.gz
+    #     return [AWS, 's3', 'cp', '-', 's3://%s/%s' % (BUCKET, self.get_key(rev))]
 
     def _validate_shard(self, rev):
         key = self.get_key(rev)
@@ -126,15 +103,14 @@ class Job(object):
             if (not response["ContentLength"] > 0):
                 logging.warning('Dump file empty: %s' % key)
                 return False
-            #logging.info(response)
+            # logging.info(response)
             return True
         except Exception as err:
             logging.debug("S3 exception: {0}".format(err))
             logging.info('Shard key does not exist: s3://%s/%s' % (BUCKET, key))
             return False
 
-
-    #Will recursively check a bucket if (rev - 1) exists until it finds a rev dump.
+    # Will recursively check a bucket if (rev - 1) exists until it finds a rev dump.
     def validate_rev(self, rev):
 
         validate_to_rev = self._get_validate_to_rev()
@@ -146,7 +122,6 @@ class Job(object):
 
         return self._validate_shard(rev_to_validate)
 
-
     def _get_validate_to_rev(self):
         rev_round_down = int((self.head - 1) / 1000)
         return rev_round_down * 1000
@@ -155,30 +130,23 @@ class Job(object):
         logging.info('Dumping and uploading rev: %s from repo: %s' % (self.rev, self.repo))
         self.dump_zip_upload(self._get_svn_dump_args(self.rev, self.rev), self.rev)
 
-
     def dump_zip_upload(self, dump_args, rev):
         shard_key = self.get_key(rev)
+        gz_args = ['/bin/gzip']
 
-        gz = '/bin/gzip'
-        gz_args = [gz]
+        # svnadmin dump
+        dump, dump_stdout, _ = execute(*dump_args, text=False, env=self.env)
+        # gzip stdout
+        gz, gz_stdout, _ = execute(*gz_args, text=False, env=self.env, stdin=dump_stdout)
+        # Upload gzip.stdout to S3
+        s3client.upload_fileobj(gz_stdout, BUCKET, shard_key)
 
-        # Svn admin dump
-        p1 = subprocess.Popen((dump_args), stdout=subprocess.PIPE, env=self.env)
-        # Zip stdout
-        p2 = subprocess.Popen((gz_args), stdin=p1.stdout, stdout=subprocess.PIPE)
-        p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
-        # Upload zip.stdout to s3
-        s3client.upload_fileobj(p2.stdout, BUCKET, shard_key)
-        #TODO: Do we need to close stuff?
-        p2.communicate()[0]
-        p1.poll()
-
-        if p1.returncode != 0:
-            logging.error('Dumping shard failed (rc=%s): %s', p1.returncode, shard_key)
+        if dump.returncode != 0:
+            logging.error('Dumping shard failed (rc=%s): %s', dump.returncode, shard_key)
             raise Exception('Dumping shard failed')
 
-        if p2.returncode != 0:
-            logging.error('Compressing shard failed (rc=%s): %s', p2.returncode, shard_key)
+        if gz.returncode != 0:
+            logging.error('Compressing shard failed (rc=%s): %s', gz.returncode, shard_key)
             raise Exception('Compressing shard failed')
 
 
@@ -227,19 +195,16 @@ class JobMulti(Job):
             raise Exception('Repository does not exist')
 
         # Considered using svn to enable rdump in the future.
-        #fqdn = socket.getfqdn()
-        #url = 'http://%s/svn/%s' % (fqdn, repo)
+        # fqdn = socket.getfqdn()
+        # url = 'http://%s/svn/%s' % (fqdn, repo)
 
-        #args = [SVN, 'info', url]
-        #grep_args = ['/bin/grep', 'Revision:']
+        # args = [SVN, 'info', url]
+        # grep_args = ['/bin/grep', 'Revision:']
 
-        args = [SVNLOOK, 'youngest', path]
-        grep_args = ['/bin/grep', '^[0-9]\+']
-
-        p1 = subprocess.Popen((args), stdout=subprocess.PIPE)
-        output = subprocess.check_output((grep_args), stdin=p1.stdout)
-
-        rev = int(''.join(filter(str.isdigit, output.decode("utf-8"))))
+        svnlook_args = [SVNLOOK, 'youngest', path]
+        svnlook, svnlook_stdout, _ = execute(*svnlook_args, text=True, env=self.env)
+        match = re.match(r'^(\d+)', svnlook_stdout)
+        rev = int(match.group(1)) if match else None
         logging.info('Repository %s youngest: %s' % (repo, rev))
         return rev
 
@@ -252,7 +217,6 @@ class JobMulti(Job):
         # rev_min has already been floored
         # Upper limit must be +1 before division (both shard3 and shard0).
         return list(range(self.rev_min, int((head + 1) / self.shard_div) * self.shard_div, self.shard_div))
-
 
     def _backup_shard(self, shard):
         logging.info('Dumping and uploading shard: %s from repo: %s' % (shard, self.repo))
@@ -282,7 +246,6 @@ class JobMultiLoad(JobMulti):
             self.shard_div = 1000
             shards = self._get_shards(self.rev_min + 1000 * self.shard_div)
             self._run(shards)
-
 
         # Refresh head after potentially loading large dumps.
         self.head = self._get_head(self.repo)
@@ -314,60 +277,47 @@ class JobMultiLoad(JobMulti):
             # Restart or raise the maximum number of shards.
             raise Exception('Maximum number of shards processed')
 
-
     def _load_shard(self, shard):
         logging.info('Loading shard: %s from repo: %s' % (shard, self.repo))
         start_rev = str(shard)
         to_rev = str(((int(shard / self.shard_div) + 1) * self.shard_div) - 1)
 
         logging.info('Loading shard %s' % shard)
-        self.load_zip(start_rev)
+        self._load_zip(start_rev)
 
-
-    def load_zip(self, rev):
+    def _load_zip(self, rev):
         shard_key = self.get_key(rev)
 
-        gz = '/bin/gunzip'
-        gz_args = [gz, '-c']
+        gz_args = ['/bin/gunzip', '-c']
 
         path = '%s/%s' % (SVNROOT, self.repo)
         load_args = [SVNADMIN, 'load', path]
 
-        # Temporary file
-        # TODO: Use specific tmp dir.
-        prefix = '%s_%s_' % (self.repo, rev)
-        fp = tempfile.NamedTemporaryFile(prefix=prefix, suffix='.svndump.gz', delete=True)
-        logging.debug('Downloading shard to temporary file: %s', fp.name)
+        shard_buffer = BytesIO()
+        logging.debug('Downloading shard to memory...')
         # Download from s3
-        s3client.download_fileobj(BUCKET, shard_key, fp)
-        fp.seek(0)
+        s3client.download_fileobj(BUCKET, shard_key, shard_buffer)
         # gunzip
-        p1 = subprocess.Popen((gz_args), stdin=fp, stdout=subprocess.PIPE, env=self.env)
+        gz, gz_stdout, _ = execute(*gz_args, text=False, env=self.env, stdin=shard_buffer.getvalue())
         # svnadmin load
-        p2 = subprocess.Popen((load_args), stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=self.env)
-        p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
-        #TODO: Do we need to close stuff?
-        p2.communicate()[0]
-        logging.debug('Load return code: %s', p2.returncode)
-        p1.poll()
-        logging.debug('Gunzip return code: %s', p1.returncode)
+        load, _, _ = execute(*load_args, text=False, env=self.env, stdin=gz_stdout)
+        logging.debug('Load return code: %s', load.returncode)
+        logging.debug('Gunzip return code: %s', gz.returncode)
 
-        # Closing tmp file should delete it.
-        fp.close()
-
-        if p1.returncode != 0:
-            logging.error('Decompressing shard failed (rc=%s): %s', p1.returncode, shard_key)
+        if gz.returncode != 0:
+            logging.error('Decompressing shard failed (rc=%s): %s', gz.returncode, shard_key)
             raise Exception('Decompressing shard failed')
 
-        if p2.returncode != 0:
-            logging.error('Loading shard failed (rc=%s): %s', p2.returncode, shard_key)
+        if load.returncode != 0:
+            logging.error('Loading shard failed (rc=%s): %s', load.returncode, shard_key)
             raise Exception('Loading shard failed')
 
         # TODO Analyze output, should conclude with (ensure revision is correct for shard):
         # ------- Committed revision 4999 >>>
 
+
 class BigDoEverythingClasss(object):
-    #removed the config object from __init__.
+    # removed the config object from __init__.
     def __init__(self):
         self.streams = ["http://%s:%d/commits" %(HOST, PORT)]
 
@@ -397,15 +347,13 @@ class BigDoEverythingClasss(object):
             job = Job(commit.repositoryname, commit.id, commit.id)
             self.worker.add_job(job)
 
-# Start logging warnings if the work backlog reaches this many items
-BACKLOG_TOO_HIGH = 500
 
 class BackgroundWorker(threading.Thread):
     def __init__(self, svnbin, hook):
         threading.Thread.__init__(self)
 
         # The main thread/process should not wait for this thread to exit.
-        ### compat with Python 2.5
+        # compat with Python 2.5
         self.setDaemon(True)
 
         self.svnbin = svnbin
@@ -454,6 +402,7 @@ class BackgroundWorker(threading.Thread):
         logging.info("Starting validation of rev: %s in repo: %s" % (job.rev, job.repo))
         return job.validate_rev(job.rev)
 
+
 class Daemon(daemonize.Daemon):
     def __init__(self, logfile, pidfile, umask, bdec):
         daemonize.Daemon.__init__(self, logfile, pidfile)
@@ -494,7 +443,7 @@ class Daemon(daemonize.Daemon):
 
 
 def prepare_logging(logfile):
-    "Log to the specified file, or to stdout if None."
+    """Log to the specified file, or to stdout if None."""
     if logfile:
         # Rotate logs daily, keeping 7 days worth.
         handler = logging.handlers.TimedRotatingFileHandler(
@@ -512,8 +461,9 @@ def prepare_logging(logfile):
     root = logging.getLogger()
     root.addHandler(handler)
 
-    ### use logging.INFO for now. switch to cmdline option or a config?
+    # use logging.INFO for now. switch to cmdline option or a config?
     root.setLevel(logging.INFO)
+
 
 def handle_options(options):
 
@@ -560,7 +510,6 @@ def handle_options(options):
 
     # Set up the logging, then process the rest of the options.
 
-
     # In daemon mode, we let the daemonize module handle the pidfile.
     # Otherwise, we should write this (foreground) PID into the file.
     if options.pidfile and not options.daemon:
@@ -595,6 +544,7 @@ def handle_options(options):
         os.setuid(uid)
 
     prepare_logging(options.logfile)
+
 
 def main(args):
     parser = optparse.OptionParser(
