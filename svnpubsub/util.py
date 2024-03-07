@@ -14,53 +14,59 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-
+import io
 import os
 import sys
 import logging
-import subprocess as __subprocess
+import subprocess
+from subprocess import CalledProcessError
 
 # check_output() is only available in Python 2.7. Allow us to run with
 # earlier versions
 try:
-    __check_output = __subprocess.check_output
+    __check_output = subprocess.check_output
     def check_output(args, env=None, universal_newlines=False):
         return __check_output(args, shell=False, env=env,
                               universal_newlines=universal_newlines)
 except AttributeError:
     def check_output(args, env=None, universal_newlines=False):
         # note: we only use these three args
-        pipe = __subprocess.Popen(args, shell=False, env=env,
-                                  stdout=__subprocess.PIPE,
-                                  universal_newlines=universal_newlines)
+        pipe = subprocess.Popen(args, shell=False, env=env,
+                                stdout=subprocess.PIPE,
+                                universal_newlines=universal_newlines)
         output, _ = pipe.communicate()
         if pipe.returncode:
-            raise __subprocess.CalledProcessError(pipe.returncode, args)
+            raise subprocess.CalledProcessError(pipe.returncode, args)
         return output
 
 
-def execute(*args, text=True):
-    stdout = []
-    stderr = []
+def execute(*args, text=True, env=None, stdin=None, throw=True):
     process = None
     arguments = [*args]
+    stdout = [] if text else bytes()
+    stderr = [] if text else bytes()
 
     logging.debug("Running: %s", " ".join(arguments))
 
+    if hasattr(stdin, 'fileno'):
+        stdin = stdin.read()
+
     try:
-        process = __subprocess.Popen(arguments, text=text, universal_newlines=text,
-                                     stdout=__subprocess.PIPE, stderr=__subprocess.PIPE)
+        process = subprocess.Popen(arguments, text=text, universal_newlines=text, env=env,
+                                   stdin=subprocess.PIPE if stdin is not None else None,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if text:
-            for line in process.stdout.readlines():
+            stdout_data, stderr_data = process.communicate(input=stdin)
+            for line in stdout_data.splitlines():
                 stdout.append(line.rstrip())
-            for line in process.stderr.readlines():
-                stderr.append(line.rstrip())
             logging.debug(os.linesep.join(stdout))
-        if process.returncode:
-            raise __subprocess.CalledProcessError(process.returncode, process.args, process.stdout, process.stderr)
+            for line in stderr_data.splitlines():
+                stderr.append(line.rstrip())
+        else:
+            stdout, stderr = process.communicate(input=stdin)
+        if process.returncode and throw:
+            raise CalledProcessError(process.returncode, process.args, process.stdout, process.stderr)
     except Exception:
         _, value, traceback = sys.exc_info()
-        if not text:
-            stderr.extend(line.decode('utf-8').rstrip() for line in process.stderr.readlines())
-        raise RuntimeError(os.linesep.join(stderr)).with_traceback(traceback)
-    return process, os.linesep.join(stdout) if text else process.stdout.read(), os.linesep.join(stderr) if text else process.stderr.read()
+        raise RuntimeError(os.linesep.join(stderr) if text else stderr.decode('utf-8')).with_traceback(traceback)
+    return process, os.linesep.join(stdout) if text else stdout, os.linesep.join(stderr) if text else stderr
