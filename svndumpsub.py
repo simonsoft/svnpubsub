@@ -279,11 +279,10 @@ class JobMultiLoad(JobMulti):
             raise Exception('Maximum number of shards processed')
 
     def _load_shard(self, shard):
-        logging.info('Loading shard: %s from repo: %s' % (shard, self.repo))
         start_rev = str(shard)
         to_rev = str(((int(shard / self.shard_div) + 1) * self.shard_div) - 1)
 
-        logging.info('Loading shard %s' % shard)
+        logging.info('Loading shard %s from repo: %s' % (shard, self.repo))
         self._load_zip(start_rev)
 
     def _load_zip(self, rev):
@@ -295,23 +294,15 @@ class JobMultiLoad(JobMulti):
         load_args = [SVNADMIN, 'load', path]
 
         shard_buffer = BytesIO()
-        logging.debug('Downloading shard to memory...')
+        logging.debug('Downloading shard from: %s' % shard_key)
         # Download from s3
         s3client.download_fileobj(BUCKET, shard_key, shard_buffer)
         # gunzip
+        logging.debug('Decompressing downloaded shard from: %s' % shard_key)
         gz, gz_stdout, _ = execute(*gz_args, text=False, env=self.env, stdin=shard_buffer.getvalue())
         # svnadmin load
+        logging.debug('Loading downloaded and decompressed shard from: %s' % shard_key)
         load, _, _ = execute(*load_args, text=False, env=self.env, stdin=gz_stdout)
-        logging.debug('Load return code: %s', load.returncode)
-        logging.debug('Gunzip return code: %s', gz.returncode)
-
-        if gz.returncode != 0:
-            logging.error('Decompressing shard failed (rc=%s): %s', gz.returncode, shard_key)
-            raise Exception('Decompressing shard failed')
-
-        if load.returncode != 0:
-            logging.error('Loading shard failed (rc=%s): %s', load.returncode, shard_key)
-            raise Exception('Loading shard failed')
 
         # TODO Analyze output, should conclude with (ensure revision is correct for shard):
         # ------- Committed revision 4999 >>>
@@ -443,24 +434,30 @@ class Daemon(daemonize.Daemon):
             logging.info('"%s" from %s', event_name, url)
 
 
-def prepare_logging(logfile):
+def prepare_logging(logfile, level):
     """Log to the specified file, or to stdout if None."""
     if logfile:
         # Rotate logs daily, keeping 7 days worth.
         handler = logging.handlers.TimedRotatingFileHandler(logfile, when='midnight', backupCount=7)
     else:
-        handler = logging.StreamHandler(sys.stdout)
+        handler = logging.getLogger().handlers[0]
 
     # Add a timestamp to the log records
     formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s', '%Y-%m-%d %H:%M:%S')
     handler.setFormatter(formatter)
 
-    # Apply the handler to the root logger
+    # Remove all existing handlers and apply the new handler to the root logger
     root = logging.getLogger()
+    for handler in root.handlers:
+        root.removeHandler(handler)
     root.addHandler(handler)
+    root.setLevel(level)
 
-    # use logging.INFO for now. switch to cmdline option or a config?
-    root.setLevel(logging.INFO)
+    # Suppress the unnecessary boto3 logs
+    logging.getLogger('boto3').setLevel(logging.INFO)
+    logging.getLogger('botocore').setLevel(logging.INFO)
+    logging.getLogger('s3transfer').setLevel(logging.INFO)
+    logging.getLogger('urllib3').setLevel(logging.INFO)
 
 
 def handle_options(options):
@@ -540,7 +537,7 @@ def handle_options(options):
         logging.info('setting uid %d', uid)
         os.setuid(uid)
 
-    prepare_logging(options.logfile)
+    prepare_logging(options.logfile, options.log_level)
 
 
 def main(args):
@@ -551,6 +548,10 @@ def main(args):
     )
     parser.add_option('--logfile',
                       help='filename for logging')
+    parser.add_option('--log-level', type=int, metavar='level', default=logging.INFO,
+                      help='debug logging level (DEBUG: %d | INFO: %d | WARNING: %d | ERROR: %d | CRITICAL: %d) '
+                           '(default: %d)' % (logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR,
+                                              logging.CRITICAL, logging.INFO))
     parser.add_option('--pidfile',
                       help="the process' PID will be written to this file")
     parser.add_option('--uid',
