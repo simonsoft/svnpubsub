@@ -273,10 +273,9 @@ class JobMultiLoad(JobMulti):
                 continue
             else:
                 logging.info('Shard does not exist, done for now - %s' % shard)
-                break
-            logging.warning('Maximum number of shards processed, terminating.')
-            # Restart or raise the maximum number of shards.
-            raise Exception('Maximum number of shards processed')
+                return
+        # Restart or raise the maximum number of shards.
+        raise Exception('Maximum number of shards processed')
 
     def _load_shard(self, shard):
         start_rev = str(shard)
