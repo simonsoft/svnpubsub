@@ -32,10 +32,11 @@ import os
 import boto3
 import re
 import logging.handlers
+
 try:
-  import queue
+    import queue
 except ImportError:
-  import queue as Queue
+    import queue as Queue
 
 import optparse
 import daemonize
@@ -65,7 +66,7 @@ class Job(object):
 
     def get_key(self, rev):
         # /v1/Cloudid/reponame/shardX/0000001000/reponame-0000001000.svndump.gz
-        return '%s/%s' % (self._get_s3_base(rev = rev), self.get_name(rev))
+        return '%s/%s' % (self._get_s3_base(rev=rev), self.get_name(rev))
 
     def get_name(self, rev):
         revStr = str(rev)
@@ -88,7 +89,7 @@ class Job(object):
     def _get_svn_dump_args(self, from_rev, to_rev):
         path = '%s/%s' % (SVNROOT, self.repo)
         dump_rev = '-r%s:%s' % (from_rev, to_rev)
-        #svnadmin dump --incremental --deltas /srv/cms/svn/demo1 -r 237:237
+        # svnadmin dump --incremental --deltas /srv/cms/svn/demo1 -r 237:237
         return [SVNADMIN, 'dump', '--incremental', '--deltas', path, dump_rev]
 
     # def _get_aws_cp_args(self, rev):
@@ -100,7 +101,7 @@ class Job(object):
         try:
             response = s3client.head_object(Bucket=BUCKET, Key=key)
             logging.debug('Shard key exists: %s' % key)
-            if (not response["ContentLength"] > 0):
+            if not response["ContentLength"] > 0:
                 logging.warning('Dump file empty: %s' % key)
                 return False
             # logging.info(response)
@@ -126,7 +127,7 @@ class Job(object):
         rev_round_down = int((self.head - 1) / 1000)
         return rev_round_down * 1000
 
-    def _backup_commit(self):
+    def backup_commit(self):
         logging.info('Dumping and uploading rev: %s from repo: %s' % (self.rev, self.repo))
         self.dump_zip_upload(self._get_svn_dump_args(self.rev, self.rev), self.rev)
 
@@ -164,7 +165,7 @@ class JobMulti(Job):
             self.rev_min = 0
         elif shard_size == 'shard0':
             self.shard_div = 1
-            self.shard_div_next = 1000 # next larger shard
+            self.shard_div_next = 1000  # next larger shard
             self.rev_min = int(self.head / self.shard_div_next) * self.shard_div_next
             # shard0 revisions might be skipped when using only --history without svnpubsub
             # revision will be dumped in shard3 but can be a problem for slave servers loading single revisions
@@ -319,12 +320,12 @@ class JobMultiLoad(JobMulti):
 class BigDoEverythingClasss(object):
     # removed the config object from __init__.
     def __init__(self):
-        self.streams = ["http://%s:%d/commits" %(HOST, PORT)]
+        self.streams = ["http://%s:%d/commits" % (HOST, PORT)]
 
         self.hook = None
         self.svnbin = SVNADMIN
         self.worker = BackgroundWorker(self.svnbin, self.hook)
-        self.watch = [ ]
+        self.watch = []
 
     def start(self):
         logging.info('start')
@@ -371,14 +372,14 @@ class BackgroundWorker(threading.Thread):
             # Warn if the queue is too long.
             # (Note: the other thread might have added entries to self.q
             # after the .get() and before the .qsize().)
-            qsize = self.q.qsize()+1
+            qsize = self.q.qsize() + 1
             if qsize > BACKLOG_TOO_HIGH:
                 logging.warn('worker backlog is at %d', qsize)
 
             try:
                 prev_exists = self._validate(job)
                 if prev_exists:
-                    job._backup_commit()
+                    job.backup_commit()
                 else:
                     logging.info('Rev - 1 has not been dumped, adding it to the queue')
                     self.add_job(job)
@@ -398,7 +399,7 @@ class BackgroundWorker(threading.Thread):
         self.q.put((job.rev, job))
 
     def _validate(self, job, boot=False):
-        "Validate the specific job."
+        """Validate the specific job."""
         logging.info("Starting validation of rev: %s in repo: %s" % (job.rev, job.repo))
         return job.validate_rev(job.rev)
 
@@ -446,15 +447,12 @@ def prepare_logging(logfile):
     """Log to the specified file, or to stdout if None."""
     if logfile:
         # Rotate logs daily, keeping 7 days worth.
-        handler = logging.handlers.TimedRotatingFileHandler(
-          logfile, when='midnight', backupCount=7,
-          )
+        handler = logging.handlers.TimedRotatingFileHandler(logfile, when='midnight', backupCount=7)
     else:
         handler = logging.StreamHandler(sys.stdout)
 
     # Add a timestamp to the log records
-    formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s',
-                                  '%Y-%m-%d %H:%M:%S')
+    formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s', '%Y-%m-%d %H:%M:%S')
     handler.setFormatter(formatter)
 
     # Apply the handler to the root logger
@@ -466,7 +464,6 @@ def prepare_logging(logfile):
 
 
 def handle_options(options):
-
     if not options.aws:
         raise ValueError('A valid --aws has to be provided (path to aws executable)')
     else:
@@ -551,39 +548,39 @@ def main(args):
         description='An SvnPubSub client to keep working copies synchronized '
                     'with a repository.',
         usage='Usage: %prog [options] CONFIG_FILE',
-        )
+    )
     parser.add_option('--logfile',
-                    help='filename for logging')
+                      help='filename for logging')
     parser.add_option('--pidfile',
-                    help="the process' PID will be written to this file")
+                      help="the process' PID will be written to this file")
     parser.add_option('--uid',
-                    help='switch to this UID before running')
+                      help='switch to this UID before running')
     parser.add_option('--gid',
-                    help='switch to this GID before running')
+                      help='switch to this GID before running')
     parser.add_option('--daemon', action='store_true',
-                    help='run as a background daemon')
+                      help='run as a background daemon')
     parser.add_option('--umask',
-                    help='set this (octal) umask before running')
+                      help='set this (octal) umask before running')
     parser.add_option('--history',
-                    help='Will dump and backup repository in shard3 ranges (even thousands), e.g --history reponame')
+                      help='Will dump and backup repository in shard3 ranges (even thousands), e.g --history reponame')
     parser.add_option('--shardsize', default='shard3',
-                    help='Shard size used by --history. Assumes that shard3 is executed before shard0.')
+                      help='Shard size used by --history. Assumes that shard3 is executed before shard0.')
     parser.add_option('--load',
-                    help='Will load repository from shards in size order (shard3 then shard0), e.g --load reponame')
+                      help='Will load repository from shards in size order (shard3 then shard0), e.g --load reponame')
     parser.add_option('--aws',
-                    help='path to aws executable e.g /usr/bin/aws')
+                      help='path to aws executable e.g /usr/bin/aws')
     parser.add_option('--svnadmin',
-                    help='path to svnadmin executable e.g /usr/bin/svnadmin')
+                      help='path to svnadmin executable e.g /usr/bin/svnadmin')
     parser.add_option('--svnlook',
-                    help='path to svnlook executable e.g /usr/bin/svnlook')
+                      help='path to svnlook executable e.g /usr/bin/svnlook')
     parser.add_option('--svnroot',
-                    help='path to repository locations /srv/cms/svn')
+                      help='path to repository locations /srv/cms/svn')
     parser.add_option('--svn',
-                    help='path to svn executable only required when combined with --history e.g /usr/bin/svn')
+                      help='path to svn executable only required when combined with --history e.g /usr/bin/svn')
     parser.add_option('--bucket',
-                    help='name of S3 bucket where dumps will be stored')
+                      help='name of S3 bucket where dumps will be stored')
     parser.add_option('--cloudid',
-                    help='AWS cloud-id')
+                      help='AWS cloud-id')
 
     options, extra = parser.parse_args(args)
 
@@ -604,8 +601,7 @@ def main(args):
 
         # We manage the logfile ourselves (along with possible rotation). The
         # daemon process can just drop stdout/stderr into /dev/null.
-        d = Daemon('/dev/null', os.path.abspath(options.pidfile),
-                options.umask, bdec)
+        d = Daemon('/dev/null', os.path.abspath(options.pidfile), options.umask, bdec)
         if options.daemon:
             # Daemonize the process and call sys.exit() with appropriate code
             d.daemonize_exit()
