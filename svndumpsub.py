@@ -24,13 +24,14 @@
 #
 # On startup SvnDumpSub starts listening to commits in all repositories.
 #
-
-import threading
 import sys
 import stat
 import os
-import boto3
 import re
+import gzip
+import boto3
+import tempfile
+import threading
 import logging.handlers
 
 try:
@@ -43,7 +44,6 @@ import daemonize
 import svnpubsub.client
 import svnpubsub.util
 from svnpubsub.util import execute
-from io import BytesIO
 
 HOST = "127.0.0.1"
 PORT = 2069
@@ -287,45 +287,45 @@ class JobMultiLoad(JobMulti):
         start = end = None
         shard_key = self.get_key(str(start_rev))
 
-        gz_args = ['/bin/gunzip', '-c']
         path = '%s/%s' % (SVNROOT, self.repo)
         load_args = [SVNADMIN, 'load', path]
 
-        shard_buffer = BytesIO()
-        logging.debug('Downloading shard from: %s' % shard_key)
-        # Download from s3
-        s3client.download_fileobj(BUCKET, shard_key, shard_buffer)
-        # gunzip
-        logging.debug('Decompressing downloaded shard from: %s' % shard_key)
-        gz, gz_stdout, _ = execute(*gz_args, text=False, env=self.env, stdin=shard_buffer.getvalue())
-        # svnadmin load
-        logging.debug('Loading downloaded and decompressed shard from: %s' % shard_key)
-        load, load_stdout, _ = execute(*load_args, text=False, env=self.env, stdin=gz_stdout)
-        for line in load_stdout.decode("utf-8").splitlines():
-            logging.debug(line.rstrip())
-            # Parse the revision from the output lines similar to: ------- Committed revision 4999 >>>
-            match = re.search(r"-+ Committed revision (\d+) >+", line)
-            if match:
-                rev = int(match.group(1))
-                if start is None:
-                    start = rev
+        prefix = '%s_%s_' % (self.repo, start_rev)
+        with tempfile.NamedTemporaryFile(dir=TEMPDIR, prefix=prefix, suffix='.svndump.gz', delete=True) as gz:
+            logging.debug('Downloading shard from: %s to temporary file: %s', shard_key, gz.name)
+            # Download from s3
+            s3client.download_fileobj(BUCKET, shard_key, gz)
+            gz.seek(0)
+            with gzip.open(gz.name, 'rb') as svndump:
+                # svnadmin load
+                logging.debug('Loading downloaded and decompressed shard from: %s' % shard_key)
+                load, load_stdout, _ = execute(*load_args, text=False, env=self.env, stdin=svndump)
+                for line in load_stdout.decode("utf-8").splitlines():
+                    logging.debug(line.rstrip())
+                    # Parse the revision from the output lines similar to: ------- Committed revision 4999 >>>
+                    match = re.search(r"-+ Committed revision (\d+) >+", line)
+                    if match:
+                        rev = int(match.group(1))
+                        if start is None:
+                            start = rev
+                        else:
+                            start = min(start, rev)
+                        if end is None:
+                            end = rev
+                        else:
+                            end = max(end, rev)
+                if start is None or end is None:
+                    logging.error('No shards were loaded')
+                    return start, end
+                youngest = self._get_head(self.repo)
+                if youngest != end:
+                    raise Exception('The last committed revision is not the youngest (%d != %d)' % (end, youngest))
+                if start_rev == end_rev:
+                    logging.info('Loaded rev: %d from shard: %d to repo: %s', end, start_rev, self.repo)
                 else:
-                    start = min(start, rev)
-                if end is None:
-                    end = rev
-                else:
-                    end = max(end, rev)
-        if start is None or end is None:
-            logging.error('No shards were loaded')
-            return start, end
-        youngest = self._get_head(self.repo)
-        if youngest != end:
-            raise Exception('The last committed revision is not the youngest (%d != %d)' % (end, youngest))
-        if start_rev == end_rev:
-            logging.info('Loaded shard: %d to repo: %s at rev: %d', start_rev, self.repo, end)
-        else:
-            logging.info('Loaded shard: %d to repo: %s at revs: (%d-%d)',
-                         start_rev, self.repo, start, end)
+                    logging.info('Loaded revs: (%d-%d) from shard: %d to repo: %s',
+                                 start, end, start_rev, self.repo)
+
         return start, end
 
 
@@ -488,6 +488,10 @@ def handle_options(options):
         global AWS
         AWS = options.aws
 
+    if options.tempdir:
+        global TEMPDIR
+        TEMPDIR = options.tempdir
+
     if not options.svnadmin:
         raise ValueError('A valid --svnadmin has to be provided (path to svnadmin executable)')
     else:
@@ -575,6 +579,8 @@ def main(args):
                                               logging.CRITICAL, logging.INFO))
     parser.add_option('--pidfile',
                       help="the process' PID will be written to this file")
+    parser.add_option('--tempdir',
+                      help="temporary directory for storing downloaded files", default=tempfile.gettempdir())
     parser.add_option('--uid',
                       help='switch to this UID before running')
     parser.add_option('--gid',
