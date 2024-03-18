@@ -175,7 +175,7 @@ class JobMulti(Job):
             logging.error('Unsupported shard type: %s' % shard_size)
             raise Exception('Unsupported shard type')
 
-        logging.info('Processing repo %s with head revision %s' % (self.repo, self.head))
+        logging.info('Processing repo: %s with head revision: %s' % (self.repo, self.head))
         shards = self._get_shards(self.head)
         self._run(shards)
 
@@ -206,7 +206,7 @@ class JobMulti(Job):
         svnlook, svnlook_stdout, _ = execute(*svnlook_args, text=True, env=self.env)
         match = re.match(r'^(\d+)', svnlook_stdout)
         rev = int(match.group(1)) if match else None
-        logging.info('Repository %s youngest: %s' % (repo, rev))
+        logging.info('Repository: %s youngest: %s' % (repo, rev))
         return rev
 
     def _get_shards(self, head):
@@ -240,7 +240,7 @@ class JobMultiLoad(JobMulti):
         else:
             self.rev_min = self.head + 1
 
-        logging.info('Processing repo %s with head revision %s' % (self.repo, self.head))
+        logging.info('Processing repo: %s with head revision: %s' % (self.repo, self.head))
         # First process large shards if local head is divisible with shard size.
         if self.rev_min % 1000 == 0:
             self.shard_size = 'shard3'
@@ -264,11 +264,11 @@ class JobMultiLoad(JobMulti):
         self._run(shards)
 
     def _run(self, shards):
-        logging.info('Shards length %s' % len(shards))
+        logging.info('Shards length: %s' % len(shards))
         for shard in shards:
             dump_exists = self._validate_shard(shard)
             if dump_exists:
-                logging.info('Shard exists, will load shard %s' % shard)
+                logging.info('Shard exists, will load shard: %s' % shard)
                 self._load_shard(shard)
                 continue
             else:
@@ -278,17 +278,16 @@ class JobMultiLoad(JobMulti):
         raise Exception('Maximum number of shards processed')
 
     def _load_shard(self, shard):
-        start_rev = str(shard)
-        to_rev = str(((int(shard / self.shard_div) + 1) * self.shard_div) - 1)
+        start_rev = shard
+        end_rev = ((int(shard / self.shard_div) + 1) * self.shard_div) - 1
+        logging.info('Loading shard: %s to repo: %s' % (shard, self.repo))
+        return self._load_zip(start_rev, end_rev)
 
-        logging.info('Loading shard %s from repo: %s' % (shard, self.repo))
-        self._load_zip(start_rev)
-
-    def _load_zip(self, rev):
-        shard_key = self.get_key(rev)
+    def _load_zip(self, start_rev, end_rev) -> (int, int):
+        start = end = None
+        shard_key = self.get_key(str(start_rev))
 
         gz_args = ['/bin/gunzip', '-c']
-
         path = '%s/%s' % (SVNROOT, self.repo)
         load_args = [SVNADMIN, 'load', path]
 
@@ -301,10 +300,33 @@ class JobMultiLoad(JobMulti):
         gz, gz_stdout, _ = execute(*gz_args, text=False, env=self.env, stdin=shard_buffer.getvalue())
         # svnadmin load
         logging.debug('Loading downloaded and decompressed shard from: %s' % shard_key)
-        load, _, _ = execute(*load_args, text=False, env=self.env, stdin=gz_stdout)
-
-        # TODO Analyze output, should conclude with (ensure revision is correct for shard):
-        # ------- Committed revision 4999 >>>
+        load, load_stdout, _ = execute(*load_args, text=False, env=self.env, stdin=gz_stdout)
+        for line in load_stdout.decode("utf-8").splitlines():
+            logging.debug(line.rstrip())
+            # Parse the revision from the output lines similar to: ------- Committed revision 4999 >>>
+            match = re.search(r"-+ Committed revision (\d+) >+", line)
+            if match:
+                rev = int(match.group(1))
+                if start is None:
+                    start = rev
+                else:
+                    start = min(start, rev)
+                if end is None:
+                    end = rev
+                else:
+                    end = max(end, rev)
+        if start is None or end is None:
+            logging.error('No shards were loaded')
+            return start, end
+        youngest = self._get_head(self.repo)
+        if youngest != end:
+            raise Exception('The last committed revision is not the youngest (%d != %d)' % (end, youngest))
+        if start_rev == end_rev:
+            logging.info('Loaded shard: %d to repo: %s at rev: %d', start_rev, self.repo, end)
+        else:
+            logging.info('Loaded shard: %d to repo: %s at revs: (%d-%d)',
+                         start_rev, self.repo, start, end)
+        return start, end
 
 
 class BigDoEverythingClasss(object):
