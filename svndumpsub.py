@@ -134,28 +134,17 @@ class Job(object):
 
     def dump_zip_upload(self, dump_args, rev):
         shard_key = self.get_key(rev)
-
-        gz = '/bin/gzip'
-        gz_args = [gz]
-
-        # Svn admin dump
-        p1 = subprocess.Popen((dump_args), stdout=subprocess.PIPE, env=self.env)
-        # Zip stdout
-        p2 = subprocess.Popen((gz_args), stdin=p1.stdout, stdout=subprocess.PIPE)
-        p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
-        # Upload zip.stdout to s3
-        s3client.upload_fileobj(p2.stdout, BUCKET, shard_key)
-        #TODO: Do we need to close stuff?
-        p2.communicate()[0]
-        p1.poll()
-
-        if p1.returncode != 0:
-            logging.error('Dumping shard failed (rc=%s): %s', p1.returncode, shard_key)
-            raise Exception('Dumping shard failed')
-
-        if p2.returncode != 0:
-            logging.error('Compressing shard failed (rc=%s): %s', p2.returncode, shard_key)
-            raise Exception('Compressing shard failed')
+        prefix = '%s_%s_' % (self.repo, rev)
+        with tempfile.NamedTemporaryFile(dir=TEMPDIR, prefix=prefix, suffix='.svndump.gz', delete=True) as gz:
+            with gzip.open(gz, 'wb') as svndump:
+                # Svn admin dump
+                logging.debug('Dumping and compressing rev: %s', rev)
+                dump, _, _ = execute(*dump_args, text=False, env=self.env, stdout=svndump)
+            logging.debug('Uploading %d bytes for rev: %s to: %s', gz.tell(), rev, shard_key)
+            gz.seek(0)
+            # Upload the .svndump.gz file to s3
+            s3client.upload_fileobj(gz, BUCKET, shard_key)
+            logging.info('Uploaded rev: %s from repo: %s to: %s', rev, self.repo, shard_key)
 
 
 # Processing one repo, specified in history option
@@ -303,7 +292,7 @@ class JobMultiLoad(JobMulti):
             # Download from s3
             s3client.download_fileobj(BUCKET, shard_key, gz)
             gz.seek(0)
-            with gzip.open(gz.name, 'rb') as svndump:
+            with gzip.open(gz, 'rb') as svndump:
                 # svnadmin load
                 logging.debug('Loading downloaded and decompressed shard from: %s' % shard_key)
                 load, load_stdout, _ = execute(*load_args, text=False, env=self.env, stdin=svndump)
