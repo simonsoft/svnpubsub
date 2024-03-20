@@ -32,6 +32,7 @@ import gzip
 import boto3
 import tempfile
 import threading
+import subprocess
 import logging.handlers
 
 try:
@@ -133,21 +134,27 @@ class Job(object):
 
     def dump_zip_upload(self, dump_args, rev):
         shard_key = self.get_key(rev)
-        gz_args = ['/bin/gzip']
 
-        # svnadmin dump
-        dump, dump_stdout, _ = execute(*dump_args, text=False, env=self.env)
-        # gzip stdout
-        gz, gz_stdout, _ = execute(*gz_args, text=False, env=self.env, stdin=dump_stdout)
-        # Upload gzip.stdout to S3
-        s3client.upload_fileobj(gz_stdout, BUCKET, shard_key)
+        gz = '/bin/gzip'
+        gz_args = [gz]
 
-        if dump.returncode != 0:
-            logging.error('Dumping shard failed (rc=%s): %s', dump.returncode, shard_key)
+        # Svn admin dump
+        p1 = subprocess.Popen((dump_args), stdout=subprocess.PIPE, env=self.env)
+        # Zip stdout
+        p2 = subprocess.Popen((gz_args), stdin=p1.stdout, stdout=subprocess.PIPE)
+        p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
+        # Upload zip.stdout to s3
+        s3client.upload_fileobj(p2.stdout, BUCKET, shard_key)
+        #TODO: Do we need to close stuff?
+        p2.communicate()[0]
+        p1.poll()
+
+        if p1.returncode != 0:
+            logging.error('Dumping shard failed (rc=%s): %s', p1.returncode, shard_key)
             raise Exception('Dumping shard failed')
 
-        if gz.returncode != 0:
-            logging.error('Compressing shard failed (rc=%s): %s', gz.returncode, shard_key)
+        if p2.returncode != 0:
+            logging.error('Compressing shard failed (rc=%s): %s', p2.returncode, shard_key)
             raise Exception('Compressing shard failed')
 
 
@@ -221,11 +228,11 @@ class JobMulti(Job):
 
     def _backup_shard(self, shard):
         logging.info('Dumping and uploading shard: %s from repo: %s' % (shard, self.repo))
-        start_rev = str(shard)
+        from_rev = str(shard)
         to_rev = str(((int(shard / self.shard_div) + 1) * self.shard_div) - 1)
 
-        svn_args = self._get_svn_dump_args(start_rev, to_rev)
-        self.dump_zip_upload(svn_args, start_rev)
+        svn_args = self._get_svn_dump_args(from_rev, to_rev)
+        self.dump_zip_upload(svn_args, from_rev)
 
 
 class JobMultiLoad(JobMulti):
@@ -272,25 +279,25 @@ class JobMultiLoad(JobMulti):
                 self._load_shard(shard)
                 continue
             else:
-                logging.info('Shard does not exist, done for now - %s' % shard)
+                logging.info('Shard: %s does not exist, done for now' % shard)
                 return
         # Restart or raise the maximum number of shards.
         raise Exception('Maximum number of shards processed')
 
     def _load_shard(self, shard):
-        start_rev = shard
-        end_rev = ((int(shard / self.shard_div) + 1) * self.shard_div) - 1
+        from_rev = shard
+        to_rev = ((int(shard / self.shard_div) + 1) * self.shard_div) - 1
         logging.info('Loading shard: %s to repo: %s' % (shard, self.repo))
-        return self._load_zip(start_rev, end_rev)
+        return self._load_zip(from_rev, to_rev)
 
-    def _load_zip(self, start_rev, end_rev) -> (int, int):
+    def _load_zip(self, from_rev, to_rev) -> (int, int):
         start = end = None
-        shard_key = self.get_key(str(start_rev))
+        shard_key = self.get_key(str(from_rev))
 
         path = '%s/%s' % (SVNROOT, self.repo)
         load_args = [SVNADMIN, 'load', path]
 
-        prefix = '%s_%s_' % (self.repo, start_rev)
+        prefix = '%s_%s_' % (self.repo, from_rev)
         with tempfile.NamedTemporaryFile(dir=TEMPDIR, prefix=prefix, suffix='.svndump.gz', delete=True) as gz:
             logging.debug('Downloading shard from: %s to temporary file: %s', shard_key, gz.name)
             # Download from s3
@@ -320,11 +327,11 @@ class JobMultiLoad(JobMulti):
                 youngest = self._get_head(self.repo)
                 if youngest != end:
                     raise Exception('The last committed revision is not the youngest (%d != %d)' % (end, youngest))
-                if start_rev == end_rev:
-                    logging.info('Loaded rev: %d from shard: %d to repo: %s', end, start_rev, self.repo)
+                if from_rev == to_rev:
+                    logging.info('Loaded rev: %d from shard: %d to repo: %s', end, from_rev, self.repo)
                 else:
                     logging.info('Loaded revs: (%d-%d) from shard: %d to repo: %s',
-                                 start, end, start_rev, self.repo)
+                                 start, end, from_rev, self.repo)
 
         return start, end
 
