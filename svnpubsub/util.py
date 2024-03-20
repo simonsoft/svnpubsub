@@ -21,6 +21,7 @@ import logging
 import subprocess
 from select import select
 from threading import Thread
+from shutil import copyfileobj
 from subprocess import Popen, PIPE, CalledProcessError
 
 # check_output() is only available in Python 2.7. Allow us to run with
@@ -45,14 +46,21 @@ def is_file_like(variable) -> bool:
         return False
 
 
-def execute(*args, text=True, env=None, throw=True, stdin=None):
+def execute(*args, text=True, env=None, throw=True, stdin=None, stdout=None, stderr=None):
     process = None
     arguments = [*args]
     rlist = wlist = xlist = []
     chunk_size = 1 * 1024 * 1024    # 1 MB
-    stdout_buffer = [] if text else bytes()
-    stderr_buffer = [] if text else bytes()
+    stdout_buffer = None if stdout is not None else [] if text else bytes()
+    stderr_buffer = None if stderr is not None else [] if text else bytes()
     stdin_writer = None
+
+    if stdin is not None and not is_file_like(stdin):
+        raise ValueError("stdin must be a file-like object")
+    if stdout is not None and not is_file_like(stdout):
+        raise ValueError("stdout must be a file-like object")
+    if stderr is not None and not is_file_like(stderr):
+        raise ValueError("stderr must be a file-like object")
 
     logging.debug("Running: %s", " ".join(arguments))
 
@@ -64,12 +72,7 @@ def execute(*args, text=True, env=None, throw=True, stdin=None):
         @param destination: A destination file-like object typically the stdin stream of the process
         """
         source.seek(0)
-        while True:
-            data = source.read(chunk_size)
-            if not data:
-                break
-            destination.write(data)
-            destination.flush()
+        copyfileobj(source, destination, chunk_size)
         destination.close()
 
     try:
@@ -83,21 +86,31 @@ def execute(*args, text=True, env=None, throw=True, stdin=None):
             rlist += [process.stdout.fileno(), process.stderr.fileno()]
             for fd in [item for sublist in select(rlist, wlist, xlist) for item in sublist]:
                 if fd == process.stdout.fileno():
-                    if text:
-                        line = process.stdout.readline()
-                        stdout_buffer.append(line.rstrip())
+                    if stdout is None:
+                        if text:
+                            line = process.stdout.readline()
+                            stdout_buffer.append(line.rstrip())
+                        else:
+                            chunk = process.stdout.read(chunk_size)
+                            if chunk:
+                                stdout_buffer += chunk
                     else:
                         chunk = process.stdout.read(chunk_size)
                         if chunk:
-                            stdout_buffer += chunk
+                            stdout.write(chunk)
                 if fd == process.stderr.fileno():
-                    if text:
-                        line = process.stderr.readline()
-                        stderr_buffer.append(line.rstrip())
+                    if stderr is None:
+                        if text:
+                            line = process.stderr.readline()
+                            stderr_buffer.append(line.rstrip())
+                        else:
+                            chunk = process.stderr.read(chunk_size)
+                            if chunk:
+                                stderr_buffer += chunk
                     else:
                         chunk = process.stderr.read(chunk_size)
                         if chunk:
-                            stdout_buffer += chunk
+                            stderr.write(chunk)
         if process.returncode and throw:
             raise subprocess.CalledProcessError(process.returncode, process.args, process.stdout, process.stderr)
     except Exception:
@@ -105,4 +118,6 @@ def execute(*args, text=True, env=None, throw=True, stdin=None):
         raise RuntimeError(os.linesep.join(stderr_buffer) if text else stderr_buffer.decode('utf-8')).with_traceback(traceback)
     if stdin_writer is not None and stdin_writer.is_alive():
         raise ChildProcessError("The child stdin writer process did not terminate successfully")
-    return process, os.linesep.join(stdout_buffer) if text else stdout_buffer, os.linesep.join(stderr_buffer) if text else stderr_buffer
+    return (process,
+            None if stdout is not None else os.linesep.join(stdout_buffer) if text else stdout_buffer,
+            None if stderr is not None else os.linesep.join(stderr_buffer) if text else stderr_buffer)
