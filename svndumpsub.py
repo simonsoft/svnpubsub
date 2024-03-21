@@ -282,10 +282,9 @@ class JobMultiLoad(JobMulti):
     def _load_zip(self, from_rev, to_rev) -> (int, int):
         start = end = None
         shard_key = self.get_key(str(from_rev))
-
         path = '%s/%s' % (SVNROOT, self.repo)
         load_args = [SVNADMIN, 'load', path]
-
+        changed_args = [SVNLOOK, 'changed', '-r', str(from_rev), path]
         prefix = '%s_%s_' % (self.repo, from_rev)
         with tempfile.NamedTemporaryFile(dir=TEMPDIR, prefix=prefix, suffix='.svndump.gz', delete=True) as gz:
             logging.debug('Downloading shard from: %s to temporary file: %s', shard_key, gz.name)
@@ -293,9 +292,19 @@ class JobMultiLoad(JobMulti):
             s3client.download_fileobj(BUCKET, shard_key, gz)
             gz.seek(0)
             with gzip.open(gz, 'rb') as svndump:
+                changed_paths_after = set()
+                changed_paths_before = set()
+                if self.shard_size == 'shard0':
+                    logging.debug('Extracting the changed paths from the dump file: %s', gz.name)
+                    for line in svndump:
+                        if line.startswith(b'Node-path:'):
+                            change = line.split(b':', 1)[1].decode('utf-8').strip()
+                            logging.debug(change)
+                            changed_paths_before.add(change)
                 # svnadmin load
-                logging.debug('Loading downloaded and decompressed shard from: %s' % shard_key)
-                load, load_stdout, _ = execute(*load_args, text=False, env=self.env, stdin=svndump)
+                svndump.seek(0)
+                logging.debug('Decompressing and loading shard from: %s', gz.name)
+                _, load_stdout, _ = execute(*load_args, text=False, env=self.env, stdin=svndump)
                 for line in load_stdout.decode("utf-8").splitlines():
                     logging.debug(line.rstrip())
                     # Parse the revision from the output lines similar to: ------- Committed revision 4999 >>>
@@ -315,12 +324,27 @@ class JobMultiLoad(JobMulti):
                     return start, end
                 youngest = self._get_head(self.repo)
                 if youngest != end:
+                    logging.error('The last committed revision is not the youngest (%d != %d)', end, youngest)
                     raise Exception('The last committed revision is not the youngest (%d != %d)' % (end, youngest))
                 if from_rev == to_rev:
                     logging.info('Loaded rev: %d from shard: %d to repo: %s', end, from_rev, self.repo)
                 else:
                     logging.info('Loaded revs: (%d-%d) from shard: %d to repo: %s',
                                  start, end, from_rev, self.repo)
+                if self.shard_size == 'shard0':
+                    logging.debug('Extracting the changed paths in the restored revision...')
+                    _, changes_stdout, _ = execute(*changed_args, text=True, env=self.env)
+                    for line in changes_stdout.splitlines():
+                        match = re.search(r"(A|D|U|_U|UU)\s+(.*)", line)
+                        if match and len(match.groups()) > 1:
+                            change = match.group(2).rstrip().rstrip('/')
+                            changed_paths_after.add(change)
+                            logging.debug(change)
+                    if changed_paths_before != changed_paths_after:
+                        logging.error('Not all expected changed paths were successfully restored: %s != %s',
+                                      "{" + ", ".join(changed_paths_before) + "}",
+                                      "{" + ", ".join(changed_paths_after) + "}")
+                        raise Exception('Not all expected changed paths were successfully restored.')
 
         return start, end
 
@@ -465,8 +489,6 @@ def prepare_logging(logfile, level):
 
     # Remove all existing handlers and apply the new handler to the root logger
     root = logging.getLogger()
-    for handler in root.handlers:
-        root.removeHandler(handler)
     root.addHandler(handler)
     root.setLevel(level)
 
