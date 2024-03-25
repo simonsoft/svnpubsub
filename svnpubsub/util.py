@@ -77,53 +77,33 @@ def execute(*args, text=True, env=None, throw=True, stdin=None, stdout=None, std
         copyfileobj(source, destination, chunk_size)
         destination.close()
 
-    def read(p, f, o, e) -> (bool, bool):
+    def read(stream, buffer, file=None) -> bool:
         """
-        Reads a chunk or a line of the available data and add them to the stdout and stderr buffers.
-        @param p: The process from which to read the stdout or stderr data
-        @param f: The file descriptor of the corresponding stdout or stderr object
-        @param o: The stdout buffer to write to
-        @param e: The stderr buffer to write to
-        @return: A boolean tuple indicating whether there's more to read for either stdout or stderr
+        Reads a chunk or a line of the available data and add it to the buffer.
+        @param stream: The process from which to read the stdout or stderr data
+        @param buffer: The buffer to write to
+        @param file: The file-like object to write to instead of the buffer if a direct output is required
+        @return: True if there's more to read from the stream, False otherwise
         """
-        more_o = False
-        more_e = False
-        if f == p.stdout.fileno():
-            if stdout is None:
-                if text:
-                    line = p.stdout.readline()
-                    if line:
-                        o.append(line.rstrip())
-                        more_o = True
-                else:
-                    chunk = p.stdout.read(chunk_size)
-                    if chunk:
-                        o += chunk
-                        more_o = True
+        eof = True
+        if file is None:
+            if text:
+                line = stream.readline()
+                if line:
+                    buffer.append(line.rstrip())
+                    eof = False
             else:
-                chunk = p.stdout.read(chunk_size)
+                chunk = stream.read(chunk_size)
                 if chunk:
-                    stdout.write(chunk)
-                    more_o = True
-        if f == p.stderr.fileno():
-            if stderr is None:
-                if text:
-                    line = p.stderr.readline()
-                    if line:
-                        e.append(line.rstrip())
-                        more_e = True
-                else:
-                    chunk = p.stderr.read(chunk_size)
-                    if chunk:
-                        e += chunk
-                        more_e = True
-            else:
-                chunk = p.stderr.read(chunk_size)
-                if chunk:
-                    stderr.write(chunk)
-                    more_e = True
+                    buffer += chunk
+                    eof = False
+        else:
+            chunk = stream.read(chunk_size)
+            if chunk:
+                file.write(chunk)
+                eof = False
 
-        return more_o, more_e
+        return not eof
 
     try:
         process = Popen(arguments, text=text, universal_newlines=text, env=env,
@@ -137,8 +117,12 @@ def execute(*args, text=True, env=None, throw=True, stdin=None, stdout=None, std
             rlist += [process.stdout.fileno(), process.stderr.fileno()]
             for fd in [item for sublist in select(rlist, wlist, xlist) for item in sublist]:
                 while True:
-                    more_stdout, more_stderr = read(process, fd, stdout_buffer, stderr_buffer)
-                    if not more_stdout and not more_stderr:
+                    more = False
+                    if fd == process.stdout.fileno():
+                        more |= read(process.stdout, stdout_buffer, stdout)
+                    if fd == process.stderr.fileno():
+                        more |= read(process.stderr, stderr_buffer, stderr)
+                    if not more:
                         break
         if process.returncode and throw:
             raise subprocess.CalledProcessError(process.returncode, process.args, process.stdout, process.stderr)
