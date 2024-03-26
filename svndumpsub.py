@@ -67,7 +67,7 @@ class Job(object):
 
     def get_key(self, rev):
         # /v1/Cloudid/reponame/shardX/0000001000/reponame-0000001000.svndump.gz
-        return '%s/%s' % (self._get_s3_base(rev=rev), self.get_name(rev))
+        return '%s/%s' % (self.get_s3_base(self.shard_size, rev), self.get_name(rev))
 
     def get_name(self, rev):
         revStr = str(rev)
@@ -76,7 +76,7 @@ class Job(object):
         # reponame-0000001000.svndump.gz
         return name
 
-    def _get_s3_base(self, rev):
+    def get_s3_base(self, shard_size, rev):
 
         # Always using 1000 for folders, can not yet support >shard3.
         d = int(rev) / 1000
@@ -85,7 +85,7 @@ class Job(object):
 
         version = 'v1'
         # v1/CLOUDID/demo1/shard0/0000000000
-        return '%s/%s/%s/%s/%s' % (version, CLOUDID, self.repo, self.shard_size, shard_number)
+        return '%s/%s/%s/%s/%s' % (version, CLOUDID, self.repo, shard_size, shard_number)
 
     def _get_svn_dump_args(self, from_rev, to_rev):
         path = '%s/%s' % (SVNROOT, self.repo)
@@ -132,7 +132,7 @@ class Job(object):
         logging.info('Dumping and uploading rev: %s from repo: %s' % (self.rev, self.repo))
         self.dump_zip_upload(self._get_svn_dump_args(self.rev, self.rev), self.rev)
 
-    def dump_zip_upload(self, dump_args, rev):
+    def dump_zip_upload(self, dump_args, rev) -> bool:
         shard_key = self.get_key(rev)
         prefix = '%s_%s_' % (self.repo, rev)
         with tempfile.NamedTemporaryFile(dir=TEMPDIR, prefix=prefix, suffix='.svndump.gz', delete=True) as gz:
@@ -145,6 +145,17 @@ class Job(object):
             # Upload the .svndump.gz file to s3
             s3client.upload_fileobj(gz, BUCKET, shard_key)
             logging.info('Uploaded rev: %s from repo: %s to: %s', rev, self.repo, shard_key)
+
+    def cleanup_shards(self, shard_size, shard):
+        prefix = self.get_s3_base(shard_size, shard)
+        try:
+            s3 = boto3.resource('s3')
+            bucket = s3.Bucket(BUCKET)
+            logging.debug('Cleaning up shards: %s/*', prefix)
+            bucket.objects.filter(Prefix=prefix).delete()
+            logging.info('Cleaned up shards: %s/*', prefix)
+        except Exception:
+            logging.exception('Failed to cleanup: %s/*', prefix)
 
 
 # Processing one repo, specified in history option
@@ -219,9 +230,11 @@ class JobMulti(Job):
         logging.info('Dumping and uploading shard: %s from repo: %s' % (shard, self.repo))
         from_rev = str(shard)
         to_rev = str(((int(shard / self.shard_div) + 1) * self.shard_div) - 1)
-
         svn_args = self._get_svn_dump_args(from_rev, to_rev)
         self.dump_zip_upload(svn_args, from_rev)
+        # Clean up corresponding shard0 after successfully dumping a shard3.
+        if self.shard_size == 'shard3':
+            self.cleanup_shards('shard0', shard)
 
 
 class JobMultiLoad(JobMulti):
@@ -298,7 +311,7 @@ class JobMultiLoad(JobMulti):
                     logging.debug('Extracting the changed paths from the dump file: %s', gz.name)
                     for line in svndump:
                         if line.startswith(b'Node-path:'):
-                            change = line.split(b':', 1)[1].decode('utf-8').strip()
+                            change = str(line.split(b':', 1)[1].decode('utf-8').strip())
                             logging.debug(change)
                             changed_paths_before.add(change)
                 # svnadmin load
@@ -337,7 +350,7 @@ class JobMultiLoad(JobMulti):
                     for line in changes_stdout.splitlines():
                         match = re.search(r"(A|D|U|_U|UU)\s+(.*)", line)
                         if match and len(match.groups()) > 1:
-                            change = match.group(2).rstrip().rstrip('/')
+                            change = str(match.group(2).rstrip().rstrip('/'))
                             changed_paths_after.add(change)
                             logging.debug(change)
                     if changed_paths_before != changed_paths_after:
