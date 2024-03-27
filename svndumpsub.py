@@ -31,8 +31,6 @@ import re
 import gzip
 import boto3
 import tempfile
-import threading
-import subprocess
 import logging.handlers
 
 try:
@@ -41,29 +39,32 @@ except ImportError:
     import queue as Queue
 
 import optparse
-import daemonize
-import svnpubsub.client
-import svnpubsub.util
 from svnpubsub.util import execute
+from svnpubsub.client import Commit
+from svnpubsub.daemon import Daemon, DaemonTask
+from svnpubsub.bgworker import BackgroundJob
 
-HOST = "127.0.0.1"
 PORT = 2069
-# Will not handle commits if repo starts with any name included in REPO_EXCLUDES
-REPO_EXCLUDES = ['demo', 'repo']
-# Start logging warnings if the work backlog reaches this many items
-BACKLOG_TOO_HIGH = 500
+HOST = "127.0.0.1"
+# Will not handle commits if repo starts with any name included in EXCLUDED_REPOS
+EXCLUDED_REPOS = ['demo', 'repo']
 
 s3client = boto3.client('s3')
 
 
-class Job(object):
+class Job(BackgroundJob):
 
-    def __init__(self, repo, rev, head):
-        self.repo = repo
-        self.rev = rev
-        self.head = head
-        self.env = {'LANG': 'en_US.UTF-8', 'LC_ALL': 'en_US.UTF-8'}
+    def __init__(self, commit: Commit):
+        super().__init__(repo=commit.repositoryname, rev=commit.id, head=commit.id, commit=commit)
+
         self.shard_size = 'shard0'
+        self.env = {'LANG': 'en_US.UTF-8', 'LC_ALL': 'en_US.UTF-8'}
+
+    def validate(self) -> bool:
+        return self.validate_rev(self.rev)
+
+    def run(self):
+        self.backup_commit()
 
     def get_key(self, rev):
         # /v1/Cloudid/reponame/shardX/0000001000/reponame-0000001000.svndump.gz
@@ -77,12 +78,10 @@ class Job(object):
         return name
 
     def get_s3_base(self, shard_size, rev):
-
         # Always using 1000 for folders, can not yet support >shard3.
         d = int(rev) / 1000
         d = str(int(d)) + '000'
         shard_number = d.zfill(10)
-
         version = 'v1'
         # v1/CLOUDID/demo1/shard0/0000000000
         return '%s/%s/%s/%s/%s' % (version, CLOUDID, self.repo, shard_size, shard_number)
@@ -362,130 +361,17 @@ class JobMultiLoad(JobMulti):
         return start, end
 
 
-class BigDoEverythingClasss(object):
-    # removed the config object from __init__.
-    def __init__(self):
-        self.streams = ["http://%s:%d/commits" % (HOST, PORT)]
+class Task(DaemonTask):
 
-        self.hook = None
-        self.svnbin = SVNADMIN
-        self.worker = BackgroundWorker(self.svnbin, self.hook)
-        self.watch = []
+    def __init__(self):
+        super().__init__(urls=["http://%s:%d/commits" % (HOST, PORT)], excluded_repos=EXCLUDED_REPOS)
 
     def start(self):
-        logging.info('start')
+        logging.info('Daemon started.')
 
-    def commit(self, url, commit):
-        if commit.type != 'svn' or commit.format != 1:
-            logging.info("SKIP unknown commit format (%s.%d)",
-                         commit.type, commit.format)
-            return
-        logging.info("COMMIT r%d (%d paths) from %s"
-                     % (commit.id, len(commit.changed), url))
-
-        excluded = False
-        for repo in REPO_EXCLUDES:
-            if commit.repositoryname.startswith(repo):
-                logging.info('Commit in excluded repository, ignoring: %s' % commit.repositoryname)
-                excluded = True
-
-        if not excluded:
-            job = Job(commit.repositoryname, commit.id, commit.id)
-            self.worker.add_job(job)
-
-
-class BackgroundWorker(threading.Thread):
-    def __init__(self, svnbin, hook):
-        threading.Thread.__init__(self)
-
-        # The main thread/process should not wait for this thread to exit.
-        # compat with Python 2.5
-        self.setDaemon(True)
-
-        self.svnbin = svnbin
-        self.hook = hook
-        self.q = queue.PriorityQueue()
-
-        self.has_started = False
-
-    def run(self):
-        while True:
-            # This will block until something arrives
-            tuple = self.q.get()
-            job = tuple[1]
-
-            # Warn if the queue is too long.
-            # (Note: the other thread might have added entries to self.q
-            # after the .get() and before the .qsize().)
-            qsize = self.q.qsize() + 1
-            if qsize > BACKLOG_TOO_HIGH:
-                logging.warn('worker backlog is at %d', qsize)
-
-            try:
-                prev_exists = self._validate(job)
-                if prev_exists:
-                    job.backup_commit()
-                else:
-                    logging.info('Rev - 1 has not been dumped, adding it to the queue')
-                    self.add_job(job)
-                    self.add_job(Job(job.repo, job.rev - 1, job.head))
-
-                self.q.task_done()
-            except:
-                logging.exception('Exception in worker')
-
-    def add_job(self, job):
-        # Start the thread when work first arrives. Thread-start needs to
-        # be delayed in case the process forks itself to become a daemon.
-        if not self.has_started:
-            self.start()
-            self.has_started = True
-
-        self.q.put((job.rev, job))
-
-    def _validate(self, job, boot=False):
-        """Validate the specific job."""
-        logging.info("Starting validation of rev: %s in repo: %s" % (job.rev, job.repo))
-        return job.validate_rev(job.rev)
-
-
-class Daemon(daemonize.Daemon):
-    def __init__(self, logfile, pidfile, umask, bdec):
-        daemonize.Daemon.__init__(self, logfile, pidfile)
-
-        self.umask = umask
-        self.bdec = bdec
-
-    def setup(self):
-        # There is no setup which the parent needs to wait for.
-        pass
-
-    def run(self):
-        logging.info('svndumpsub started, pid=%d', os.getpid())
-
-        # Set the umask in the daemon process. Defaults to 000 for
-        # daemonized processes. Foreground processes simply inherit
-        # the value from the parent process.
-        if self.umask is not None:
-            umask = int(self.umask, 8)
-            os.umask(umask)
-            logging.info('umask set to %03o', umask)
-
-        # Start the BDEC (on the main thread), then start the client
-        self.bdec.start()
-
-        mc = svnpubsub.client.MultiClient(self.bdec.streams,
-                                          self.bdec.commit,
-                                          self._event)
-        mc.run_forever()
-
-    def _event(self, url, event_name, event_arg):
-        if event_name == 'error':
-            logging.exception('from %s', url)
-        elif event_name == 'ping':
-            logging.debug('ping from %s', url)
-        else:
-            logging.info('"%s" from %s', event_name, url)
+    def commit(self, url: str, commit: Commit):
+        job = Job(commit)
+        self.worker.queue(job)
 
 
 def prepare_logging(logfile, level):
@@ -656,17 +542,17 @@ def main(args):
         if options.daemon and not options.pidfile:
             parser.error('PIDFILE is required when running as a daemon')
 
-        bdec = BigDoEverythingClasss()
-
-        # We manage the logfile ourselves (along with possible rotation). The
-        # daemon process can just drop stdout/stderr into /dev/null.
-        d = Daemon('/dev/null', os.path.abspath(options.pidfile), options.umask, bdec)
+        daemon = Daemon(name=os.path.basename(__file__),
+                        logfile='/dev/null',
+                        pidfile=os.path.abspath(options.pidfile) if options.pidfile else None,
+                        umask=options.umask,
+                        task=Task())
         if options.daemon:
             # Daemonize the process and call sys.exit() with appropriate code
-            d.daemonize_exit()
+            daemon.daemonize_exit()
         else:
             # Just run in the foreground (the default)
-            d.foreground()
+            daemon.foreground()
 
 
 if __name__ == "__main__":
