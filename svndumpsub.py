@@ -370,8 +370,11 @@ class Task(DaemonTask):
         logging.info('Daemon started.')
 
     def commit(self, url: str, commit: Commit):
-        job = Job(commit)
-        self.worker.queue(job)
+        try:
+            job = Job(commit)
+            self.worker.queue(job)
+        except Exception:
+            logging.exception('Failed to queue a job for r%s in: %s.', job.rev, job.repo)
 
 
 def prepare_logging(logfile, level):
