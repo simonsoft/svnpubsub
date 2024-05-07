@@ -20,7 +20,7 @@ class BackgroundWorker(Thread):
     def run(self):
         while True:
             # This will block until something arrives
-            job: BackgroundJob = self.q.get()['job']
+            job: BackgroundJob = self.q.get()[1]
             # Warn if the queue is too long.
             # Note: The other thread might have added entries to self.q after the .get() and before the .qsize()
             qsize = self.q.qsize() + 1
@@ -45,7 +45,7 @@ class BackgroundWorker(Thread):
             self.start()
             self.started = True
         # Add the new job to the queue
-        self.q.put({'rev': job.rev, 'job': job})
+        self.q.put((job.rev, job))
 
     def __validate(self, job):
         logging.info("Validating r%s in: %s" % (job.rev, job.repo))
