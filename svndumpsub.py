@@ -131,7 +131,7 @@ class Job(BackgroundJob):
         logging.info('Dumping and uploading rev: %s from repo: %s' % (self.rev, self.repo))
         self.dump_zip_upload(self._get_svn_dump_args(self.rev, self.rev), self.rev)
 
-    def dump_zip_upload(self, dump_args, rev) -> bool:
+    def dump_zip_upload(self, dump_args, rev):
         shard_key = self.get_key(rev)
         prefix = '%s_%s_' % (self.repo, rev)
         with tempfile.NamedTemporaryFile(dir=TEMPDIR, prefix=prefix, suffix='.svndump.gz', delete=True) as gz:
@@ -289,10 +289,16 @@ class JobMultiLoad(JobMulti):
         from_rev = shard
         to_rev = ((int(shard / self.shard_div) + 1) * self.shard_div) - 1
         logging.info('Loading shard: %s to repo: %s' % (shard, self.repo))
-        return self._load_zip(from_rev, to_rev)
+        if self.shard_size == 'shard3':
+            youngest = self._get_head(self.repo)
+            if (youngest % self.shard_div) != 0:
+                logging.error('Unable to load %s as the youngest revision: %d is not a multiple of %d',
+                              self.shard_size, youngest, self.shard_div)
+                raise Exception('Unable to load %s as the youngest revision: %d is not a multiple of %d' %
+                                (self.shard_size, youngest, self.shard_div))
+        self._load_zip(from_rev, to_rev)
 
-    def _load_zip(self, from_rev, to_rev) -> (int, int):
-        start = end = None
+    def _load_zip(self, from_rev, to_rev):
         shard_key = self.get_key(str(from_rev))
         path = '%s/%s' % (SVNROOT, self.repo)
         load_args = [SVNADMIN, 'load', path]
@@ -319,30 +325,24 @@ class JobMultiLoad(JobMulti):
                 _, load_stdout, _ = execute(*load_args, text=False, env=self.env, stdin=svndump)
                 for line in load_stdout.decode("utf-8").splitlines():
                     logging.debug(line.rstrip())
-                    # Parse the revision from the output lines similar to: ------- Committed revision 4999 >>>
-                    match = re.search(r"-+ Committed revision (\d+) >+", line)
+                    # Make sure the shard was not loaded over an incorrect revision
+                    match = re.search(r"-+ Committed new rev (\d+) \(loaded from original rev (\d+)\)", line)
                     if match:
-                        rev = int(match.group(1))
-                        if start is None:
-                            start = rev
-                        else:
-                            start = min(start, rev)
-                        if end is None:
-                            end = rev
-                        else:
-                            end = max(end, rev)
-                if start is None or end is None:
-                    logging.error('No shards were loaded')
-                    return start, end
+                        new_rev = int(match.group(1))
+                        original_rev = int(match.group(2))
+                        logging.error('The original rev: %d was committed to new rev: %d', original_rev, new_rev)
+                        raise Exception('The original rev: %d was committed to new rev: %d' % (original_rev, new_rev))
                 youngest = self._get_head(self.repo)
-                if youngest != end:
-                    logging.error('The last committed revision is not the youngest (%d != %d)', end, youngest)
-                    raise Exception('The last committed revision is not the youngest (%d != %d)' % (end, youngest))
+                if youngest != to_rev:
+                    logging.error('The youngest revision did not match the expected revision (%d != %d)',
+                                  youngest, to_rev)
+                    raise Exception('The youngest revision did not match the expected revision (%d != %d)' %
+                                    (youngest, to_rev))
                 if from_rev == to_rev:
-                    logging.info('Loaded rev: %d from shard: %d to repo: %s', end, from_rev, self.repo)
+                    logging.info('Loaded rev: %d from shard: %d to repo: %s', to_rev, from_rev, self.repo)
                 else:
                     logging.info('Loaded revs: (%d-%d) from shard: %d to repo: %s',
-                                 start, end, from_rev, self.repo)
+                                 from_rev, to_rev, from_rev, self.repo)
                 if self.shard_size == 'shard0':
                     logging.debug('Extracting the changed paths in the restored revision...')
                     _, changes_stdout, _ = execute(*changed_args, text=True, env=self.env)
@@ -357,8 +357,6 @@ class JobMultiLoad(JobMulti):
                                       "{" + ", ".join(changed_paths_before) + "}",
                                       "{" + ", ".join(changed_paths_after) + "}")
                         raise Exception('Not all expected changed paths were successfully restored.')
-
-        return start, end
 
 
 class Task(DaemonTask):
