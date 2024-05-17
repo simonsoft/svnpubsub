@@ -32,6 +32,7 @@ import gzip
 import boto3
 import tempfile
 import logging.handlers
+import subprocess
 
 try:
     import queue
@@ -133,17 +134,27 @@ class Job(BackgroundJob):
 
     def dump_zip_upload(self, dump_args, rev):
         shard_key = self.get_key(rev)
-        prefix = '%s_%s_' % (self.repo, rev)
-        with tempfile.NamedTemporaryFile(dir=TEMPDIR, prefix=prefix, suffix='.svndump.gz', delete=True) as gz:
-            with gzip.open(gz, 'wb') as svndump:
-                # Svn admin dump
-                logging.debug('Dumping and compressing rev: %s', rev)
-                dump, _, _ = execute(*dump_args, text=False, env=self.env, stdout=svndump)
-            logging.debug('Uploading %d bytes for rev: %s to: %s', gz.tell(), rev, shard_key)
-            gz.seek(0)
-            # Upload the .svndump.gz file to s3
-            s3client.upload_fileobj(gz, BUCKET, shard_key)
-            logging.info('Uploaded rev: %s from repo: %s to: %s', rev, self.repo, shard_key)
+        gz_args = ['/bin/gzip']
+        # Svn admin dump
+        logging.debug('Dumping and compressing rev: %s', rev)
+        with subprocess.Popen(dump_args, stdout=subprocess.PIPE, env=self.env) as dump:
+            # Zip stdout
+            with subprocess.Popen(gz_args, stdin=dump.stdout, stdout=subprocess.PIPE) as gz:
+                dump.stdout.close()  # Allow dump to receive a SIGPIPE if gz exits.
+                # Upload zip.stdout to s3
+                logging.debug('Uploading rev: %s to: %s', rev, shard_key)
+                s3client.upload_fileobj(gz.stdout, BUCKET, shard_key)
+                logging.info('Uploaded rev: %s from repo: %s to: %s', rev, self.repo, shard_key)
+                gz.communicate()[0]
+                dump.poll()
+
+                if dump.returncode != 0:
+                    logging.error('Dumping shard failed (rc=%s): %s', dump.returncode, shard_key)
+                    raise Exception('Dumping shard failed')
+
+                if gz.returncode != 0:
+                    logging.error('Compressing shard failed (rc=%s): %s', gz.returncode, shard_key)
+                    raise Exception('Compressing shard failed')
 
     def cleanup_shards(self, shard_size, shard):
         prefix = self.get_s3_base(shard_size, shard)
