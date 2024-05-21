@@ -34,6 +34,8 @@ import tempfile
 import logging.handlers
 import subprocess
 
+import botocore
+
 try:
     import queue
 except ImportError:
@@ -296,24 +298,69 @@ class JobMultiLoad(JobMulti):
         # Restart or raise the maximum number of shards.
         raise Exception('Maximum number of shards processed')
 
+    def _extract_changed_paths_from_shard(self, shard) -> set:
+        changed_paths = set()
+        shard_key = self.get_key(str(shard))
+        prefix = '%s_%s_' % (self.repo, shard)
+        with tempfile.NamedTemporaryFile(dir=TEMPDIR, prefix=prefix, suffix='.svndump.gz', delete=True) as gz:
+            logging.debug('Downloading shard from: %s to temporary file: %s', shard_key, gz.name)
+            try:
+                # Download from s3
+                s3client.download_fileobj(BUCKET, shard_key, gz)
+            except botocore.exceptions.ClientError as e:
+                logging.info('Shard not found: %s', shard_key)
+                return None
+            gz.seek(0)
+            with gzip.open(gz, 'rb') as svndump:
+                logging.debug('Extracting the changed paths from shard: %d', shard)
+                for line in svndump:
+                    if line.startswith(b'Node-path:'):
+                        change = str(line.split(b':', 1)[1].decode('utf-8').strip())
+                        logging.debug(change)
+                        changed_paths.add(change)
+        return changed_paths
+
+    def _extract_changed_paths_from_rev(self, rev) -> set:
+        changed_paths = set()
+        path = '%s/%s' % (SVNROOT, self.repo)
+        changed_args = [SVNLOOK, 'changed', '-r', str(rev), path]
+        logging.debug('Extracting the changed paths from rev: %d', rev)
+        _, changes_stdout, _ = execute(*changed_args, text=True, env=self.env)
+        for line in changes_stdout.splitlines():
+            match = re.search(r"(A|D|U|_U|UU)\s+(.*)", line)
+            if match and len(match.groups()) > 1:
+                change = str(match.group(2).rstrip().rstrip('/'))
+                changed_paths.add(change)
+                logging.debug(change)
+        return changed_paths
+
     def _load_shard(self, shard):
         from_rev = shard
+        previous_rev = shard - 1
         to_rev = ((int(shard / self.shard_div) + 1) * self.shard_div) - 1
         logging.info('Loading shard: %s to repo: %s' % (shard, self.repo))
         if self.shard_size == 'shard3':
             youngest = self._get_head(self.repo)
-            if (youngest % self.shard_div) != 0:
-                logging.error('Unable to load %s as the youngest revision: %d is not a multiple of %d',
+            if youngest != 0 and youngest % self.shard_div != self.shard_div - 1:
+                logging.error('Unable to load %s as the youngest revision: %d is not exactly or almost a multiple of %d',
                               self.shard_size, youngest, self.shard_div)
-                raise Exception('Unable to load %s as the youngest revision: %d is not a multiple of %d' %
-                                (self.shard_size, youngest, self.shard_div))
+                raise Exception('Unable to load %s as the youngest revision: %d is not exactly or almost a multiple '
+                                'of %d' % (self.shard_size, youngest, self.shard_div))
+        elif self.shard_size == 'shard0':
+            changed_paths_rev = self._extract_changed_paths_from_rev(previous_rev)
+            changed_paths_shard = self._extract_changed_paths_from_shard(previous_rev)
+            if changed_paths_rev is not None and changed_paths_shard is not None:
+                if changed_paths_shard != changed_paths_rev:
+                    logging.error('Not all expected changed paths for rev: %s were previously restored: %s != %s',
+                                  previous_rev, "{" + ", ".join(changed_paths_shard) + "}",
+                                  "{" + ", ".join(changed_paths_rev) + "}")
+                    raise Exception('Not all expected changed paths were previously restored.')
         self._load_zip(from_rev, to_rev)
 
     def _load_zip(self, from_rev, to_rev):
         shard_key = self.get_key(str(from_rev))
         path = '%s/%s' % (SVNROOT, self.repo)
         load_args = [SVNADMIN, 'load', path]
-        changed_args = [SVNLOOK, 'changed', '-r', str(from_rev), path]
         prefix = '%s_%s_' % (self.repo, from_rev)
         with tempfile.NamedTemporaryFile(dir=TEMPDIR, prefix=prefix, suffix='.svndump.gz', delete=True) as gz:
             logging.debug('Downloading shard from: %s to temporary file: %s', shard_key, gz.name)
@@ -321,15 +368,6 @@ class JobMultiLoad(JobMulti):
             s3client.download_fileobj(BUCKET, shard_key, gz)
             gz.seek(0)
             with gzip.open(gz, 'rb') as svndump:
-                changed_paths_after = set()
-                changed_paths_before = set()
-                if self.shard_size == 'shard0':
-                    logging.debug('Extracting the changed paths from the dump file: %s', gz.name)
-                    for line in svndump:
-                        if line.startswith(b'Node-path:'):
-                            change = str(line.split(b':', 1)[1].decode('utf-8').strip())
-                            logging.debug(change)
-                            changed_paths_before.add(change)
                 # svnadmin load
                 svndump.seek(0)
                 logging.debug('Decompressing and loading shard from: %s', gz.name)
@@ -354,20 +392,6 @@ class JobMultiLoad(JobMulti):
                 else:
                     logging.info('Loaded revs: (%d-%d) from shard: %d to repo: %s',
                                  from_rev, to_rev, from_rev, self.repo)
-                if self.shard_size == 'shard0':
-                    logging.debug('Extracting the changed paths in the restored revision...')
-                    _, changes_stdout, _ = execute(*changed_args, text=True, env=self.env)
-                    for line in changes_stdout.splitlines():
-                        match = re.search(r"(A|D|U|_U|UU)\s+(.*)", line)
-                        if match and len(match.groups()) > 1:
-                            change = str(match.group(2).rstrip().rstrip('/'))
-                            changed_paths_after.add(change)
-                            logging.debug(change)
-                    if changed_paths_before != changed_paths_after:
-                        logging.error('Not all expected changed paths were successfully restored: %s != %s',
-                                      "{" + ", ".join(changed_paths_before) + "}",
-                                      "{" + ", ".join(changed_paths_after) + "}")
-                        raise Exception('Not all expected changed paths were successfully restored.')
 
 
 class Task(DaemonTask):
