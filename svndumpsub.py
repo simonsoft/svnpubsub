@@ -342,8 +342,9 @@ class JobMultiLoad(JobMulti):
         if self.shard_size == 'shard3':
             youngest = self._get_head(self.repo)
             if youngest != 0 and youngest % self.shard_div != self.shard_div - 1:
-                logging.error('Unable to load %s as the youngest revision: %d is not exactly or almost a multiple of %d',
-                              self.shard_size, youngest, self.shard_div)
+                logging.error(
+                    'Unable to load %s as the youngest revision: %d is not exactly or almost a multiple of %d',
+                    self.shard_size, youngest, self.shard_div)
                 raise Exception('Unable to load %s as the youngest revision: %d is not exactly or almost a multiple '
                                 'of %d' % (self.shard_size, youngest, self.shard_div))
         elif self.shard_size == 'shard0':
@@ -434,6 +435,30 @@ def prepare_logging(logfile, level):
     logging.getLogger('urllib3').setLevel(logging.INFO)
 
 
+def create_pid_file(name):
+    if os.path.isfile(name):
+        with open(name, 'r') as pidfile:
+            try:
+                pid = int(pidfile.read().strip())
+                if pid and os.path.exists(f"/proc/{pid}"):
+                    logging.error("Another instance of the daemon is already running with PID %d.", pid)
+                    sys.exit(1)
+            except ValueError:
+                pass
+
+    with open(name, 'w') as pidfile:
+        pid = os.getpid()
+        pidfile.write(str(pid))
+        logging.info('pid %d written to %s', pid, name)
+
+
+def remove_pid_file(name):
+    try:
+        os.remove(name)
+    except OSError:
+        pass
+
+
 def handle_options(options):
     if not options.aws:
         raise ValueError('A valid --aws has to be provided (path to aws executable)')
@@ -481,21 +506,6 @@ def handle_options(options):
         raise ValueError('A valid --svnlook has to be provided if combined with --history (path to svnlook executable)')
 
     # Set up the logging, then process the rest of the options.
-
-    # In daemon mode, we let the daemonize module handle the pidfile.
-    # Otherwise, we should write this (foreground) PID into the file.
-    if options.pidfile and not options.daemon:
-        pid = os.getpid()
-        # Be wary of symlink attacks
-        try:
-            os.remove(options.pidfile)
-        except OSError:
-            pass
-        fd = os.open(options.pidfile, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-                     stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
-        os.write(fd, b'%d\n' % pid)
-        os.close(fd)
-        logging.info('pid %d written to %s', pid, options.pidfile)
 
     if options.gid:
         try:
@@ -568,6 +578,11 @@ def main(args):
     # Process any provided options.
     handle_options(options)
 
+    # In daemon mode, we let the daemonize module handle the pidfile.
+    # Otherwise, we should write this (foreground) PID into the file.
+    if options.pidfile and not options.daemon:
+        create_pid_file(options.pidfile)
+
     if options.history:
         JobMulti(options.history, options.shardsize)
     elif options.load:
@@ -589,6 +604,9 @@ def main(args):
         else:
             # Just run in the foreground (the default)
             daemon.foreground()
+
+    if options.pidfile and not options.daemon:
+        remove_pid_file(options.pidfile)
 
 
 if __name__ == "__main__":
