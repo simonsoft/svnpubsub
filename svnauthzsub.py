@@ -87,8 +87,8 @@ def generate(access_accs: str | list, repo):
         result += "</{}>".format(name) + os.linesep
         return result
 
-    def location(name, content):
-        return directive("Location", content, parameters="\"/svn/{}{}\"".format(repo, name.rstrip('/'))) + os.linesep
+    def location(base, name, content):
+        return directive("Location", content, parameters="\"/{}/{}{}\"".format(base, repo, name.rstrip('/'))) + os.linesep
 
     def require(expression):
         return "Require {}".format(expression) + os.linesep
@@ -116,10 +116,10 @@ def generate(access_accs: str | list, repo):
                 permissions[section[role]].append(matches.group(1))
         if ('' not in permissions or '*' not in permissions['']) and path != '/':
             logging.warning("Section [%s] is missing a '* = ' permission inheritance specifier or it is invalid.", path)
-        # Now append the individual sections
-        output.write(location(path, [
-            require("all denied")   # Special case when the only entry in a section is a "* = " statement
-        ] if len(permissions) == 1 and list(permissions.values())[0] == ['*'] else [
+        # Now append the individual sections for /svn/
+        output.write(location("svn", path, [
+            require("all denied")   # Special case when no roll has read permission
+        ] if not any('r' in key for key in permissions) else [
             # Add the common OPTIONS section
             require_all([
                 require("valid-user"),
@@ -134,14 +134,29 @@ def generate(access_accs: str | list, repo):
                     for role in permissions['r'] if role != '*'
                 ])
             ]) if 'r' in permissions else "",
-            # Add the Read/Write section
+            # Add the Write section
             require_all([
                 require("valid-user"),
                 require_any([
                     require("expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*{}(,[^,]+)*$/".format(role))
-                    for role in permissions['rw'] if role != '*'
+                    for key in permissions if 'w' in key
+                    for role in permissions[key] if role != '*'
                 ])
-            ]) if 'rw' in permissions else ""
+            ]) if any('w' in key for key in permissions) else ""
+        ]))
+        # Now append the individual sections for /svn-w/
+        output.write(location("svn-w", path, [
+            require("all denied")   # Special case when no roll has write permission
+        ] if not any('w' in key for key in permissions) else [
+            # Add the Write section
+            require_all([
+                require("valid-user"),
+                require_any([
+                    require("expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*{}(,[^,]+)*$/".format(role))
+                    for key in permissions if 'w' in key
+                    for role in permissions[key] if role != '*'
+                ])
+            ]) if any('w' in key for key in permissions) else ""
         ]))
     output.seek(0)
     return output
@@ -172,6 +187,7 @@ class Job(BackgroundJob):
             logging.warning("Commit skipped.")
             return
         output_file = os.path.join(OUTPUT_DIR, "svn-{}.conf".format(self.repo))
+        logging.info(os.path.abspath(output_file))
         try:
             exists = os.path.exists(output_file)
             config = generate(access_accs=access_accs, repo=self.repo)
@@ -200,11 +216,12 @@ class Task(DaemonTask):
 
 
 def main():
-    global OUTPUT_DIR
+    global OUTPUT_DIR, HOST
     access_accs = None
 
     parser = argparse.ArgumentParser(description='An SvnPubSub client that monitors the access.accs and regenerates the apache config file.')
 
+    parser.add_argument('--host', help='host name used to subscribe to events (default: %s)' % HOST)
     parser.add_argument('--validate', action='store_true', help='validate the access file provided via INPUT or through STDIN and exit')
     parser.add_argument('--stdin', action='store_true', help='read the access.acss file from stdin, generate the configuration or validate it and exit')
     parser.add_argument('--input', help='process a local access.acss file, generate the configuration or validate it and exit')
@@ -256,6 +273,9 @@ def main():
 
     if args.output_dir:
         OUTPUT_DIR = args.output_dir
+
+    if args.host:
+        HOST = args.host
 
     # In daemon mode, we let the daemonize module handle the pidfile.
     # Otherwise, we should write this (foreground) PID into the file.
