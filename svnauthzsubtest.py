@@ -27,6 +27,10 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "</RequireAny>",
             "</RequireAll>",
             "</Location>",
+
+            "<Location \"/svn-w/{}/qa/readonly\" >".format(repo),
+            "Require all denied",
+            "</Location>",
         ]
         # Generate the output as a list of lines removing the indentation and empty lines.
         output = [line.strip() for line in generate(input, repo).readlines() if line.strip() != '']
@@ -56,6 +60,17 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "</RequireAny>",
             "</RequireAll>",
             "</Location>",
+
+            "<Location \"/svn-w/{}/projectB\" >".format(repo),
+            "<RequireAll>",
+            "Require valid-user",
+            "<RequireAny>",
+            "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsAdmin(,[^,]+)*$/",
+            "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsUserSuper(,[^,]+)*$/",
+            "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsUser(,[^,]+)*$/",
+            "</RequireAny>",
+            "</RequireAll>",
+            "</Location>",
         ]
         # Generate the output as a list of lines removing the indentation and empty lines.
         output = [line.strip() for line in generate(input, repo).readlines() if line.strip() != '']
@@ -73,7 +88,16 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "<Location \"/svn/{}/projectC\" >".format(repo),
             "Require all denied",
             "</Location>",
+
+            "<Location \"/svn-w/{}/projectC\" >".format(repo),
+            "Require all denied",
+            "</Location>",
+
             "<Location \"/svn/{}/projectD\" >".format(repo),
+            "Require all denied",
+            "</Location>",
+
+            "<Location \"/svn-w/{}/projectD\" >".format(repo),
             "Require all denied",
             "</Location>",
         ]
@@ -102,6 +126,16 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsUser(,[^,]+)*$/",
             "</RequireAny>",
             "</RequireAll>",
+            "<RequireAll>",
+            "Require valid-user",
+            "<RequireAny>",
+            "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsAdmin(,[^,]+)*$/",
+            "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsUserSuper(,[^,]+)*$/",
+            "</RequireAny>",
+            "</RequireAll>",
+            "</Location>",
+
+            "<Location \"/svn-w/{}\" >".format(repo),
             "<RequireAll>",
             "Require valid-user",
             "<RequireAny>",
@@ -150,11 +184,33 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "</RequireAny>",
             "</RequireAll>",
             "</Location>",
+
+            "<Location \"/svn-w/{}/projectA\" >".format(repo),
+            "<RequireAll>",
+            "Require valid-user",
+            "<RequireAny>",
+            "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsAdmin(,[^,]+)*$/",
+            "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsUserSuper(,[^,]+)*$/",
+            "</RequireAny>",
+            "</RequireAll>",
+            "</Location>",
+
             "<Location \"/svn/{}/projectB\" >".format(repo),
             "<RequireAll>",
             "Require valid-user",
             "Require method OPTIONS MERGE",
             "</RequireAll>",
+            "<RequireAll>",
+            "Require valid-user",
+            "<RequireAny>",
+            "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsAdmin(,[^,]+)*$/",
+            "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsUserSuper(,[^,]+)*$/",
+            "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsUser(,[^,]+)*$/",
+            "</RequireAny>",
+            "</RequireAll>",
+            "</Location>",
+
+            "<Location \"/svn-w/{}/projectB\" >".format(repo),
             "<RequireAll>",
             "Require valid-user",
             "<RequireAny>",
@@ -199,6 +255,11 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "</RequireAny>",
             "</RequireAll>",
             "</Location>",
+
+            "<Location \"/svn-w/{}/qa\" >".format(repo),
+            "Require all denied",
+            "</Location>",
+
             "<Location \"/svn/{}/qa/a\" >".format(repo),
             "<RequireAll>",
             "Require valid-user",
@@ -212,6 +273,11 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "</RequireAny>",
             "</RequireAll>",
             "</Location>",
+
+            "<Location \"/svn-w/{}/qa/a\" >".format(repo),
+            "Require all denied",
+            "</Location>",
+
             "<Location \"/svn/{}/qa/b\" >".format(repo),
             "<RequireAll>",
             "Require valid-user",
@@ -225,6 +291,11 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "</RequireAny>",
             "</RequireAll>",
             "</Location>",
+
+            "<Location \"/svn-w/{}/qa/b\" >".format(repo),
+            "Require all denied",
+            "</Location>",
+
             "<Location \"/svn/{}/qa/b/a\" >".format(repo),
             "<RequireAll>",
             "Require valid-user",
@@ -238,6 +309,11 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "</RequireAny>",
             "</RequireAll>",
             "</Location>",
+
+            "<Location \"/svn-w/{}/qa/b/a\" >".format(repo),
+            "Require all denied",
+            "</Location>",
+
         ]
         # Generate the output as a list of lines removing the indentation and empty lines.
         output = [line.strip() for line in generate(input, repo).readlines() if line.strip() != '']
