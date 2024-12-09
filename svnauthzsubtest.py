@@ -293,12 +293,15 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "[/qa]",
             "* =",
             "@CmsUser = r",
+
             "[/qa/b/a]",
             "* =",
             "@CmsUser = r",
+
             "[/qa/b]",
             "* =",
             "@CmsUser = r",
+
             "[/qa/a]",
             "* =",
             "@CmsUser = r",
@@ -410,6 +413,112 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsUser(,[^,]+)*$/",
             "</RequireAny>",
             "</RequireAll>",
+            "</Location>",
+        ]
+        # Generate the output as a list of lines removing the indentation and empty lines.
+        output = [line.strip() for line in generate(input, repo).readlines() if line.strip() != '']
+        self.assertListEqual(output, expected)
+
+    def test_svn_c_location_denied(self):
+        repo = "testrepo"
+        input = [
+            "[/qa]",
+            "* =",
+            "@CmsUser = r",
+
+            "[/qa/a]",
+            "* =",
+            "@CmsUser = r",
+
+            "[/qa/b]",
+            "* =",
+            "@CmsUser = r",
+
+            "[/qa/b/a]",
+            "* =",
+        ]
+        expected = [
+            "<Location \"/svn/{}/qa\" >".format(repo),
+            "<RequireAll>",
+            "Require valid-user",
+            "Require method OPTIONS MERGE",
+            "</RequireAll>",
+            "<RequireAll>",
+            "Require valid-user",
+            "Require method GET PROPFIND OPTIONS REPORT",
+            "<RequireAny>",
+            "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsUser(,[^,]+)*$/",
+            "</RequireAny>",
+            "</RequireAll>",
+            "</Location>",
+
+            "<Location \"/svn-w/{}/qa\" >".format(repo),
+            "Require all denied",
+            "</Location>",
+
+            "<Location \"/svn-c/{}/qa\" >".format(repo),
+            "Require all denied",
+            "</Location>",
+
+            "<Location \"/svn/{}/qa/a\" >".format(repo),
+            "<RequireAll>",
+            "Require valid-user",
+            "Require method OPTIONS MERGE",
+            "</RequireAll>",
+            "<RequireAll>",
+            "Require valid-user",
+            "Require method GET PROPFIND OPTIONS REPORT",
+            "<RequireAny>",
+            "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsUser(,[^,]+)*$/",
+            "</RequireAny>",
+            "</RequireAll>",
+            "</Location>",
+
+            "<Location \"/svn-w/{}/qa/a\" >".format(repo),
+            "Require all denied",
+            "</Location>",
+
+            "<Location \"/svn-c/{}/qa/a\" >".format(repo),
+            "<RequireAll>",
+            "Require valid-user",
+            "<RequireAny>",
+            "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsUser(,[^,]+)*$/",
+            "</RequireAny>",
+            "</RequireAll>",
+            "</Location>",
+
+            "<Location \"/svn/{}/qa/b\" >".format(repo),
+            "<RequireAll>",
+            "Require valid-user",
+            "Require method OPTIONS MERGE",
+            "</RequireAll>",
+            "<RequireAll>",
+            "Require valid-user",
+            "Require method GET PROPFIND OPTIONS REPORT",
+            "<RequireAny>",
+            "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsUser(,[^,]+)*$/",
+            "</RequireAny>",
+            "</RequireAll>",
+            "</Location>",
+
+            "<Location \"/svn-w/{}/qa/b\" >".format(repo),
+            "Require all denied",
+            "</Location>",
+
+            "<Location \"/svn-c/{}/qa/b\" >".format(repo),
+            "Require all denied",
+            "</Location>",
+
+            "<Location \"/svn/{}/qa/b/a\" >".format(repo),
+            "Require all denied",
+            "</Location>",
+
+            "<Location \"/svn-w/{}/qa/b/a\" >".format(repo),
+            "Require all denied",
+            "</Location>",
+
+            "<Location \"/svn-c/{}/qa/b/a\" >".format(repo),
+            "Require all denied",
             "</Location>",
         ]
         # Generate the output as a list of lines removing the indentation and empty lines.
