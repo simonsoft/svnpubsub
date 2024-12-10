@@ -430,9 +430,15 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "* =",
             "@CmsUser = r",
 
+            "[/qa/aa]",
+            "* =",
+
             "[/qa/b]",
             "* =",
             "@CmsUser = r",
+
+            "[/qa/a/a]",
+            "@CmsUser = rw",
 
             "[/qa/b/a]",
             "* =",
@@ -487,6 +493,18 @@ class SvnAuthzSubTestCase(unittest.TestCase):
             "</RequireAll>",
             "</Location>",
 
+            "<Location \"/svn/{}/qa/aa\" >".format(repo),
+            "Require all denied",
+            "</Location>",
+
+            "<Location \"/svn-w/{}/qa/aa\" >".format(repo),
+            "Require all denied",
+            "</Location>",
+
+            "<Location \"/svn-c/{}/qa/aa\" >".format(repo),
+            "Require all denied",
+            "</Location>",
+
             "<Location \"/svn/{}/qa/b\" >".format(repo),
             "<RequireAll>",
             "Require valid-user",
@@ -507,6 +525,37 @@ class SvnAuthzSubTestCase(unittest.TestCase):
 
             "<Location \"/svn-c/{}/qa/b\" >".format(repo),
             "Require all denied",
+            "</Location>",
+
+            "<Location \"/svn/{}/qa/a/a\" >".format(repo),
+            "<RequireAll>",
+            "Require valid-user",
+            "Require method OPTIONS MERGE",
+            "</RequireAll>",
+            "<RequireAll>",
+            "Require valid-user",
+            "<RequireAny>",
+            "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsUser(,[^,]+)*$/",
+            "</RequireAny>",
+            "</RequireAll>",
+            "</Location>",
+
+            "<Location \"/svn-w/{}/qa/a/a\" >".format(repo),
+            "<RequireAll>",
+            "Require valid-user",
+            "<RequireAny>",
+            "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsUser(,[^,]+)*$/",
+            "</RequireAny>",
+            "</RequireAll>",
+            "</Location>",
+
+            "<Location \"/svn-c/{}/qa/a/a\" >".format(repo),
+            "<RequireAll>",
+            "Require valid-user",
+            "<RequireAny>",
+            "Require expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*CmsUser(,[^,]+)*$/",
+            "</RequireAny>",
+            "</RequireAll>",
             "</Location>",
 
             "<Location \"/svn/{}/qa/b/a\" >".format(repo),

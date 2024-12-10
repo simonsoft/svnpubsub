@@ -124,6 +124,7 @@ def generate(access_accs: str | list, repo):
         return result
 
     def get_descendants(sections, path):
+        # Find and return the sections that are descendents of the specified path plus a trailing slash
         return [section for section in sections if section.path != path and section.path.startswith(os.path.join(path, ''))]
 
     output = StringIO()
@@ -164,7 +165,7 @@ def generate(access_accs: str | list, repo):
         output.write(location("svn-w", section.path, [
             require("all denied")   # Special case when no roll has write permission
         ] if not any('w' in key for key in section.permissions) else [
-            # Add the Write section
+            # Represents Write permission
             require_all([
                 require("valid-user"),
                 require_any([
@@ -185,7 +186,7 @@ def generate(access_accs: str | list, repo):
             require("all denied")   # Special case when no roll has read permission in this and all its descending paths
         ] if not any('r' in key for key in section.permissions) or
              not any([all(allowed) for allowed in role_descendants_r]) else [
-            # Add the Write section
+            # Represents recursive Read permission
             require_all([
                 require("valid-user"),
                 require_any([
