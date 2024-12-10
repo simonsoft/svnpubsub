@@ -107,7 +107,7 @@ def generate(access_accs: str | list, repo):
         # Ignore sections not containing a path such as 'groups', etc.
         paths = [path for path in config_parser.sections() if '/' in path]
         # Sort the paths putting parent before children as that is how it works as expected in apache
-        paths.sort(key=lambda x: (os.path.dirname(x), os.path.basename(x)))
+        paths.sort()
         for path in paths:
             section = config_parser[path]
             roles = {}
