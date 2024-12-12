@@ -37,6 +37,7 @@ import svnpubsub.logger
 from io import StringIO
 from textwrap import indent
 from urllib.request import urlopen
+from collections import namedtuple
 from svnpubsub.client import Commit
 from svnpubsub.daemon import Daemon, DaemonTask
 from svnpubsub.bgworker import BackgroundJob
@@ -78,6 +79,8 @@ def validate(access_accs: str | list):
 
 
 def generate(access_accs: str | list, repo):
+    Section = namedtuple('Section', ['path', 'roles', 'permissions'])
+
     def directive(name: str, content: str | list, parameters: str = None):
         result = "<{}{}>".format(name, " {} ".format(parameters) if parameters else "") + os.linesep
         if isinstance(content, list):
@@ -99,27 +102,41 @@ def generate(access_accs: str | list, repo):
     def require_all(content):
         return directive("RequireAll", content)
 
+    def get_sections(config_parser):
+        result = []
+        # Ignore sections not containing a path such as 'groups', etc.
+        paths = [path for path in config_parser.sections() if '/' in path]
+        # Sort the paths putting parent before children as that is how it works as expected in apache
+        paths.sort()
+        for path in paths:
+            section = config_parser[path]
+            roles = {}
+            permissions = {section[role]: [] for role in section if role.startswith('*') or role.startswith('@')}
+            for role in section:
+                # Remove the starting @ from the role name
+                matches = re.match("^(?:@)?([\\w*]+)$", role)
+                if matches:
+                    roles[matches.group(1)] = section[role]
+                    permissions[section[role]].append(matches.group(1))
+            if ('' not in permissions or '*' not in permissions['']) and path != '/':
+                logging.warning("Section [%s] is missing a '* = ' permission inheritance specifier or it is invalid.", path)
+            result.append(Section(path, roles, permissions))
+        return result
+
+    def get_descendants(sections, path):
+        # Find and return the sections that are descendents of the specified path plus a trailing slash
+        return [section for section in sections if section.path != path and section.path.startswith(os.path.join(path, ''))]
+
     output = StringIO()
     config_parser = ConfigParser()
     config_parser.read_string(os.linesep.join(access_accs) if isinstance(access_accs, list) else access_accs)
-    # Ignore sections not containing a path such as 'groups', etc.
-    paths = [section for section in config_parser.sections() if '/' in section]
-    # Sort the paths putting parent before children as that is how it works as expected in apache
-    paths.sort(key=lambda x: (os.path.dirname(x), os.path.basename(x)))
-    for path in paths:
-        section = config_parser[path]
-        permissions = {section[role]: [] for role in section if role.startswith('*') or role.startswith('@')}
-        for role in section:
-            # Remove the starting @ from the role name
-            matches = re.match("^(?:@)?([\\w*]+)$", role)
-            if matches:
-                permissions[section[role]].append(matches.group(1))
-        if ('' not in permissions or '*' not in permissions['']) and path != '/':
-            logging.warning("Section [%s] is missing a '* = ' permission inheritance specifier or it is invalid.", path)
+    sections = get_sections(config_parser)
+    for section in sections:
+        descendants = get_descendants(sections, section.path)
         # Now append the individual sections for /svn/
-        output.write(location("svn", path, [
+        output.write(location("svn", section.path, [
             require("all denied")   # Special case when no roll has read permission
-        ] if not any('r' in key for key in permissions) else [
+        ] if not any('r' in key for key in section.permissions) else [
             # Add the common OPTIONS section
             require_all([
                 require("valid-user"),
@@ -131,32 +148,53 @@ def generate(access_accs: str | list, repo):
                 require("method GET PROPFIND OPTIONS REPORT"),
                 require_any([
                     require("expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*{}(,[^,]+)*$/".format(role))
-                    for role in permissions['r'] if role != '*'
+                    for role in section.permissions['r'] if role != '*'
                 ])
-            ]) if 'r' in permissions else "",
+            ]) if 'r' in section.permissions else "",
             # Add the Write section
             require_all([
                 require("valid-user"),
                 require_any([
                     require("expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*{}(,[^,]+)*$/".format(role))
-                    for key in permissions if 'w' in key
-                    for role in permissions[key] if role != '*'
+                    for key in section.permissions if 'w' in key
+                    for role in section.permissions[key] if role != '*'
                 ])
-            ]) if any('w' in key for key in permissions) else ""
+            ]) if any('w' in key for key in section.permissions) else ""
         ]))
         # Now append the individual sections for /svn-w/
-        output.write(location("svn-w", path, [
+        output.write(location("svn-w", section.path, [
             require("all denied")   # Special case when no roll has write permission
-        ] if not any('w' in key for key in permissions) else [
-            # Add the Write section
+        ] if not any('w' in key for key in section.permissions) else [
+            # Represents Write permission
             require_all([
                 require("valid-user"),
                 require_any([
                     require("expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*{}(,[^,]+)*$/".format(role))
-                    for key in permissions if 'w' in key
-                    for role in permissions[key] if role != '*'
+                    for key in section.permissions if 'w' in key
+                    for role in section.permissions[key] if role != '*'
                 ])
-            ]) if any('w' in key for key in permissions) else ""
+            ]) if any('w' in key for key in section.permissions) else ""
+        ]))
+        # Roles with Read access in the current section
+        roles_r = [role for role in section.roles if 'r' in section.roles[role]]
+        # Roles with Read access for each descendant of the current path
+        descendants_roles_r = [[role for role in descendant.roles if 'r' in descendant.roles[role]] for descendant in descendants]
+        # For all the Roles with Read access in this section, check whether they are allowed Read access in each descendant path
+        role_descendants_r = [[role in roles for roles in descendants_roles_r] for role in roles_r]
+        # Now append the individual sections for /svn-c/
+        output.write(location("svn-c", section.path, [
+            require("all denied")   # Special case when no roll has read permission in this and all its descending paths
+        ] if not any('r' in key for key in section.permissions) or
+             not any([all(allowed) for allowed in role_descendants_r]) else [
+            # Represents recursive Read permission
+            require_all([
+                require("valid-user"),
+                require_any([
+                    require("expr req_novary('OIDC_CLAIM_roles') =~ /^([^,]+,)*{}(,[^,]+)*$/".format(role))
+                    for key in section.permissions if 'r' in key
+                    for role in section.permissions[key] if role != '*' and all('r' in descendant.roles.get(role, '') for descendant in descendants)
+                ])
+            ]) if any('r' in key for key in section.permissions) else ""
         ]))
     output.seek(0)
     return output
