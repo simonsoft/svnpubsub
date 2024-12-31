@@ -85,10 +85,13 @@ class Job(BackgroundJob):
                 logging.error("Failed to retrieve the account identifier.")
                 return
         stepfunctions = boto3.client('stepfunctions')
+        session = boto3.session.Session()
+        # determine region, works when AWS_DEFAULT_REGION is set or configured in ~/.aws/config
+        region = session.region_name
         items = self.failed if self.failed else self.commit.changed
         for item in items:
             name = "cms-{}-event-v1".format(cloudid)
-            state_machine_arn = "arn:aws:states:eu-west-1:{}:stateMachine:{}".format(ACCOUNT, name)
+            state_machine_arn = "arn:aws:states:{}:{}:stateMachine:{}".format(region, ACCOUNT, name)
             try:
                 logging.debug("%s a %s execution for: %s/%s (r%d)",
                               "Retrying" if self.retrying else "Starting", name, self.repo, item, self.commit.id)
