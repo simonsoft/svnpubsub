@@ -72,6 +72,7 @@ def do_put(body):
     url = opener.open(request)
 
 def do_process(repo, revision):
+    print(f"{repo} (r{revision})...", end="")
     revision = revision.lstrip('r')
     i = svnlook_info(repo, revision)
     last_slash_index = repo.rindex("/")
@@ -89,6 +90,7 @@ def do_process(repo, revision):
     data['changed'].update(svnlook_changed(repo, revision))
     body = str.encode(json.dumps(data))
     do_put(body)
+    print("OK")
 
 def main(repo, from_rev, to_rev):
     for i in range(from_rev, to_rev + 1):
