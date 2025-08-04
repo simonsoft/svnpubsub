@@ -28,11 +28,11 @@ import io
 import os
 import re
 import stat
+import sys
 import zipfile
 
 import boto3
 import logging
-import botocore
 import argparse
 import svnpubsub.logger
 from svnpubsub.util import execute
@@ -333,8 +333,9 @@ def main():
     if args.daemon and not args.pidfile:
         parser.error('PIDFILE is required when running as a daemon')
 
-    # Initialize a dummy client to force full loading and plugin registration
-    _ = boto3.client('sts')  # We use 'sts' as it’s lightweight and safe
+    # Perform identify retrieval and logging implicitly forcing boto3 to load
+    if not get_account_identifier():
+        sys.exit(1)
 
     # We manage the logfile ourselves (along with possible rotation).
     # The daemon process can just drop stdout/stderr into /dev/null.
