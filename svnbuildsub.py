@@ -32,6 +32,7 @@ import zipfile
 
 import boto3
 import logging
+import botocore
 import argparse
 import svnpubsub.logger
 from svnpubsub.util import execute
@@ -47,7 +48,6 @@ SSM_PREFIX = "/cms/"
 REPO_REGEX = "^[a-z0-9-]{1,20}-application$"
 SVNBIN_DIR = "/usr/bin"
 ACCOUNT = None
-
 
 class Job(BackgroundJob):
 
@@ -332,6 +332,9 @@ def main():
         parser.error('LOGFILE is required when running as a daemon')
     if args.daemon and not args.pidfile:
         parser.error('PIDFILE is required when running as a daemon')
+
+    # Initialize a dummy client to force full loading and plugin registration
+    _ = boto3.client('sts')  # We use 'sts' as it’s lightweight and safe
 
     # We manage the logfile ourselves (along with possible rotation).
     # The daemon process can just drop stdout/stderr into /dev/null.
