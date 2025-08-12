@@ -28,6 +28,7 @@ import io
 import os
 import re
 import stat
+import sys
 import zipfile
 
 import boto3
@@ -47,7 +48,6 @@ SSM_PREFIX = "/cms/"
 REPO_REGEX = "^[a-z0-9-]{1,20}-application$"
 SVNBIN_DIR = "/usr/bin"
 ACCOUNT = None
-
 
 class Job(BackgroundJob):
 
@@ -332,6 +332,10 @@ def main():
         parser.error('LOGFILE is required when running as a daemon')
     if args.daemon and not args.pidfile:
         parser.error('PIDFILE is required when running as a daemon')
+
+    # Perform identify retrieval and logging implicitly forcing boto3 to load
+    if not get_account_identifier():
+        sys.exit(1)
 
     # We manage the logfile ourselves (along with possible rotation).
     # The daemon process can just drop stdout/stderr into /dev/null.
