@@ -14,53 +14,123 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-
+import io
 import os
 import sys
 import logging
-import subprocess as __subprocess
+import subprocess
+from select import select
+from threading import Thread
+from shutil import copyfileobj
+from subprocess import Popen, PIPE, CalledProcessError
 
 # check_output() is only available in Python 2.7. Allow us to run with
 # earlier versions
 try:
-    __check_output = __subprocess.check_output
     def check_output(args, env=None, universal_newlines=False):
-        return __check_output(args, shell=False, env=env,
-                              universal_newlines=universal_newlines)
+        return subprocess.check_output(args, shell=False, env=env, universal_newlines=universal_newlines)
 except AttributeError:
     def check_output(args, env=None, universal_newlines=False):
         # note: we only use these three args
-        pipe = __subprocess.Popen(args, shell=False, env=env,
-                                  stdout=__subprocess.PIPE,
-                                  universal_newlines=universal_newlines)
+        pipe = Popen(args, shell=False, env=env, stdout=PIPE, universal_newlines=universal_newlines)
         output, _ = pipe.communicate()
         if pipe.returncode:
-            raise __subprocess.CalledProcessError(pipe.returncode, args)
+            raise CalledProcessError(pipe.returncode, args)
         return output
 
 
-def execute(*args, text=True):
-    stdout = []
-    stderr = []
+def is_file_like(variable) -> bool:
+    try:
+        return hasattr(variable, 'fileno')
+    except AttributeError:
+        return False
+
+
+def execute(*args, text=True, env=None, throw=True, stdin=None, stdout=None, stderr=None):
+    rlist = []
+    wlist = []
+    xlist = []
     process = None
     arguments = [*args]
+    chunk_size = 1 * 1024 * 1024    # 1 MB
+    stdout_buffer = None if stdout is not None else [] if text else bytearray()
+    stderr_buffer = None if stderr is not None else [] if text else bytearray()
+    stdin_writer = None
+
+    if stdin is not None and not is_file_like(stdin):
+        raise ValueError("stdin must be a file-like object")
+    if stdout is not None and not is_file_like(stdout):
+        raise ValueError("stdout must be a file-like object")
+    if stderr is not None and not is_file_like(stderr):
+        raise ValueError("stderr must be a file-like object")
 
     logging.debug("Running: %s", " ".join(arguments))
 
+    def write(source, destination):
+        """
+        Copy the source file-like object to the destination file-like object and close
+        the destination file-like object.
+        @param source: A source file-like object typically the source of the stdin
+        @param destination: A destination file-like object typically the stdin stream of the process
+        """
+        source.seek(0)
+        copyfileobj(source, destination, chunk_size)
+        destination.close()
+
+    def read(stream, buffer, file=None) -> bool:
+        """
+        Reads a chunk or a line of the available data and add it to the buffer.
+        @param stream: The process from which to read the stdout or stderr data
+        @param buffer: The buffer to write to
+        @param file: The file-like object to write to instead of the buffer if a direct output is required
+        @return: True if there's more to read from the stream, False otherwise
+        """
+        eof = True
+        if file is None:
+            if text:
+                line = stream.readline()
+                if line:
+                    buffer.append(line.rstrip())
+                    eof = False
+            else:
+                chunk = stream.read(chunk_size)
+                if chunk:
+                    buffer += chunk
+                    eof = False
+        else:
+            chunk = stream.read(chunk_size)
+            if chunk:
+                file.write(chunk)
+                eof = False
+
+        return not eof
+
     try:
-        process = __subprocess.Popen(arguments, text=text, universal_newlines=text,
-                                     stdout=__subprocess.PIPE, stderr=__subprocess.PIPE)
-        if text:
-            for line in process.stdout.readlines():
-                stdout.append(line.rstrip())
-            for line in process.stderr.readlines():
-                stderr.append(line.rstrip())
-            logging.debug(os.linesep.join(stdout))
-        if process.returncode:
-            raise __subprocess.CalledProcessError(process.returncode, process.args, process.stdout, process.stderr)
+        process = Popen(arguments, text=text, universal_newlines=text, env=env,
+                        stdin=PIPE if stdin is not None else None, stdout=PIPE, stderr=PIPE)
+
+        if stdin is not None and process.poll() is None:
+            # If stdin was supplied, copy its contents to the stdin stream of the process in a separate thread
+            stdin_writer = Thread(target=write, args=[stdin, process.stdin])
+            stdin_writer.start()
+        while process.poll() is None:
+            rlist += [process.stdout.fileno(), process.stderr.fileno()]
+            for fd in [item for sublist in select(rlist, wlist, xlist) for item in sublist]:
+                while True:
+                    more = False
+                    if fd == process.stdout.fileno():
+                        more |= read(process.stdout, stdout_buffer, stdout)
+                    if fd == process.stderr.fileno():
+                        more |= read(process.stderr, stderr_buffer, stderr)
+                    if not more:
+                        break
+        if process.returncode and throw:
+            raise subprocess.CalledProcessError(process.returncode, process.args, process.stdout, process.stderr)
     except Exception:
         _, value, traceback = sys.exc_info()
-        if not text:
-            stderr.extend(line.decode('utf-8').rstrip() for line in process.stderr.readlines())
-        raise RuntimeError(os.linesep.join(stderr)).with_traceback(traceback)
-    return process, os.linesep.join(stdout) if text else process.stdout.read(), os.linesep.join(stderr) if text else process.stderr.read()
+        raise RuntimeError(os.linesep.join(stderr_buffer) if text else stderr_buffer.decode('utf-8')).with_traceback(traceback)
+    if stdin_writer is not None and stdin_writer.is_alive():
+        raise ChildProcessError("The child stdin writer process did not terminate successfully")
+    return (process,
+            None if stdout is not None else os.linesep.join(stdout_buffer) if text else bytes(stdout_buffer),
+            None if stderr is not None else os.linesep.join(stderr_buffer) if text else bytes(stderr_buffer))
