@@ -37,6 +37,7 @@ import svnpubsub.logger
 import logging.handlers
 import svnpubsub.client
 from svnpubsub import bgworker
+from svnpubsub.util import execute
 from svnpubsub.client import Commit
 from svnpubsub.daemon import Daemon, DaemonTask
 
@@ -54,27 +55,6 @@ PORT = 2069
 EXCLUDED_REPOS = [] # ['demo', 'repo']
 
 s3client = boto3.client('s3')
-
-assert hasattr(subprocess, 'check_call')
-
-def check_call(*args, **kwds):
-    """Wrapper around subprocess.check_call() that logs stderr upon failure,
-    with an optional list of exit codes to consider non-failure."""
-    assert 'stderr' not in kwds
-    if '__okayexits' in kwds:
-        __okayexits = kwds['__okayexits']
-        del kwds['__okayexits']
-    else:
-        __okayexits = set([0]) # EXIT_SUCCESS
-    kwds.update(stderr=subprocess.PIPE)
-    pipe = subprocess.Popen(*args, **kwds)
-    output, errput = pipe.communicate()
-    if pipe.returncode not in __okayexits:
-        cmd = args[0] if len(args) else kwds.get('args', '(no command)')
-        logging.error('Command failed: returncode=%d command=%r stderr=%r',
-                      pipe.returncode, cmd, errput)
-        raise subprocess.CalledProcessError(pipe.returncode, args)
-    return pipe.returncode # is EXIT_OK
 
 
 class Job(bgworker.BackgroundJob):
@@ -167,9 +147,9 @@ class Job(bgworker.BackgroundJob):
         gz_args = [gz]
 
         # Svn admin dump
-        p1 = subprocess.Popen((dump_args), stdout=subprocess.PIPE, env=self.env)
+        p1 = subprocess.Popen(dump_args, stdout=subprocess.PIPE, env=self.env)
         # Zip stdout
-        p2 = subprocess.Popen((gz_args), stdin=p1.stdout, stdout=subprocess.PIPE)
+        p2 = subprocess.Popen(gz_args, stdin=p1.stdout, stdout=subprocess.PIPE)
         p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
         # Upload zip.stdout to s3
         s3client.upload_fileobj(p2.stdout, BUCKET, shard_key)
@@ -236,13 +216,10 @@ class HistoryDumpJob(Job):
         # args = [SVN, 'info', url]
         # grep_args = ['/bin/grep', 'Revision:']
 
-        args = [SVNLOOK, 'youngest', path]
-        grep_args = ['/bin/grep', '^[0-9]\+']
-
-        p1 = subprocess.Popen((args), stdout=subprocess.PIPE)
-        output = subprocess.check_output((grep_args), stdin=p1.stdout)
-
-        rev = int(''.join(filter(str.isdigit, output.decode("utf-8"))))
+        # svnlook youngest outputs only the revision number, so grep is redundant.
+        # Using execute() removes the manual pipe and decode handling.
+        _, output, _ = execute(SVNLOOK, 'youngest', path)
+        rev = int(output.strip())
         logging.info('Repository %s youngest: %s' % (repo, rev))
         return rev
 
@@ -255,7 +232,6 @@ class HistoryDumpJob(Job):
         # rev_min has already been floored
         # Upper limit must be +1 before division (both shard3 and shard0).
         return list(range(self.rev_min, int((head + 1) / self.shard_div) * self.shard_div, self.shard_div))
-
 
     def __backup_shard(self, shard):
         logging.info('Dumping and uploading shard: %s from repo: %s' % (shard, self.repo))
