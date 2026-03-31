@@ -78,11 +78,11 @@ class Job(bgworker.BackgroundJob):
             raise Exception('No commit or repo specified')
 
 
-    def get_key(self, rev):
+    def _get_key(self, rev):
         # /v1/Cloudid/reponame/shardX/0000001000/reponame-0000001000.svndump.gz
-        return '%s/%s' % (self.__get_s3_base(rev = rev), self.get_name(rev))
+        return '%s/%s' % (self.__get_s3_base(rev = rev), self.__get_name(rev))
 
-    def get_name(self, rev):
+    def __get_name(self, rev):
         rev_str = str(rev)
         rev_str = rev_str.zfill(10)
         name = self.repo + '-' + rev_str + '.svndump.gz'
@@ -100,14 +100,14 @@ class Job(bgworker.BackgroundJob):
         # v1/CLOUDID/demo1/shard0/0000000000
         return '%s/%s/%s/%s/%s' % (version, CLOUDID, self.repo, self.shard_size, shard_number)
 
-    def __get_svn_dump_args(self, from_rev, to_rev):
+    def _get_svn_dump_args(self, from_rev, to_rev):
         path = '%s/%s' % (SVNROOT, self.repo)
         dump_rev = '-r%s:%s' % (from_rev, to_rev)
         # svnadmin dump --incremental --deltas /srv/cms/svn/demo1 -r 237:237
         return [SVNADMIN, 'dump', '--incremental', '--deltas', path, dump_rev]
 
-    def validate_shard(self, rev):
-        key = self.get_key(rev)
+    def _validate_shard(self, rev):
+        key = self._get_key(rev)
         try:
             response = s3client.head_object(Bucket=BUCKET, Key=key)
             logging.debug('Shard key exists: %s' % key)
@@ -134,14 +134,14 @@ class Job(bgworker.BackgroundJob):
             logging.info('At first possible rev in shard, will not validate further rev: %s', rev_to_validate)
             return True
 
-        return self.validate_shard(rev_to_validate)
+        return self._validate_shard(rev_to_validate)
 
     def run(self):
         logging.info('Dumping and uploading rev: %s from repo: %s' % (self.rev, self.repo))
-        self.dump_zip_upload(self.__get_svn_dump_args(self.rev, self.rev), self.rev)
+        self.dump_zip_upload(self._get_svn_dump_args(self.rev, self.rev), self.rev)
 
     def dump_zip_upload(self, dump_args, rev):
-        shard_key = self.get_key(rev)
+        shard_key = self._get_key(rev)
 
         gz = '/bin/gzip'
         gz_args = [gz]
@@ -171,7 +171,7 @@ class HistoryDumpJob(Job):
     Processing one repo as specified in the history option.
     """
     def __init__(self, repo, shard_size=None):
-        super().__init__(shard_size=shard_size, repo=repo, head=self.get_head(repo))
+        super().__init__(shard_size=shard_size, repo=repo, head=self._get_head(repo))
         if shard_size is None:
             pass
         elif shard_size == 'shard3':
@@ -194,14 +194,14 @@ class HistoryDumpJob(Job):
 
     def run(self):
         logging.info('Processing repo %s with head revision %s' % (self.repo, self.head))
-        shards = self.get_shards(self.head)
+        shards = self._get_shards(self.head)
         for shard in shards:
-            dump_exists = self.validate_shard(shard)
+            dump_exists = self._validate_shard(shard)
             if not dump_exists:
                 logging.info('Shard is missing will dump and upload shard %s' % shard)
                 self.__backup_shard(shard)
 
-    def get_head(self, repo) -> int:
+    def _get_head(self, repo) -> int:
         path = '%s/%s' % (SVNROOT, repo)
 
         # While using fs we can check that repo exists and provide a better error message.
@@ -223,7 +223,7 @@ class HistoryDumpJob(Job):
         logging.info('Repository %s youngest: %s' % (repo, rev))
         return rev
 
-    def get_shards(self, head):
+    def _get_shards(self, head):
         shards = []
         number_of_shards = int(head / self.shard_div)
         # python range excludes second arg from range.
@@ -238,7 +238,7 @@ class HistoryDumpJob(Job):
         start_rev = str(shard)
         to_rev = str(((int(shard / self.shard_div) + 1) * self.shard_div) - 1)
 
-        svn_args = self.__get_svn_dump_args(start_rev, to_rev)
+        svn_args = self._get_svn_dump_args(start_rev, to_rev)
         self.dump_zip_upload(svn_args, start_rev)
 
 
@@ -260,11 +260,11 @@ class HistoryLoadJob(HistoryDumpJob):
         if self.rev_min % 1000 == 0:
             self.shard_size = 'shard3'
             self.shard_div = 1000
-            shards = self.get_shards(self.rev_min + 1000 * self.shard_div)
+            shards = self._get_shards(self.rev_min + 1000 * self.shard_div)
             self.__run(shards)
 
         # Refresh head after potentially loading large dumps.
-        self.head = self.get_head(self.repo)
+        self.head = self._get_head(self.repo)
         if self.head == 0:
             # Empty repository is a special case because the current head rev can be loaded.
             self.rev_min = 0
@@ -275,13 +275,13 @@ class HistoryLoadJob(HistoryDumpJob):
         self.shard_size = 'shard0'
         self.shard_div = 1
 
-        shards = self.get_shards(self.rev_min + 999)
+        shards = self._get_shards(self.rev_min + 999)
         self.__run(shards)
 
     def __run(self, shards):
         logging.info('Shards length %s' % len(shards))
         for shard in shards:
-            dump_exists = self.validate_shard(shard)
+            dump_exists = self._validate_shard(shard)
             if dump_exists:
                 logging.info('Shard exists, will load shard %s' % shard)
                 self.__load_shard(shard)
@@ -302,7 +302,7 @@ class HistoryLoadJob(HistoryDumpJob):
         self.load_zip(start_rev)
 
     def load_zip(self, rev):
-        shard_key = self.get_key(rev)
+        shard_key = self._get_key(rev)
 
         gz = '/bin/gunzip'
         gz_args = [gz, '-c']
