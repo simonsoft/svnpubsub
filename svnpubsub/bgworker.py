@@ -1,4 +1,5 @@
 import logging
+import itertools
 from threading import Thread
 from queue import PriorityQueue
 
@@ -12,6 +13,7 @@ class BackgroundWorker(Thread):
         for key, value in kwargs.items():
             setattr(self, key, value)
         self.q = PriorityQueue()
+        self._counter = itertools.count()
         # Set the kwargs as class attributes
         self.daemon = True  # The main thread/process should not wait for this thread to exit.
         self.recursive = recursive
@@ -20,7 +22,7 @@ class BackgroundWorker(Thread):
     def run(self):
         while True:
             # This will block until something arrives
-            job: BackgroundJob = self.q.get()[1]
+            job: BackgroundJob = self.q.get()[2]
             # Warn if the queue is too long.
             # Note: The other thread might have added entries to self.q after the .get() and before the .qsize()
             qsize = self.q.qsize() + 1
@@ -44,8 +46,9 @@ class BackgroundWorker(Thread):
         if not self.started:
             self.start()
             self.started = True
-        # Add the new job to the queue
-        self.q.put((job.rev, job))
+        # Counter breaks ties when two jobs share the same rev, preventing
+        # heapq from falling through to compare Job instances (which have no ordering).
+        self.q.put((job.rev, next(self._counter), job))
 
     def __validate(self, job):
         logging.info("Validating r%s in: %s" % (job.rev, job.repo))
