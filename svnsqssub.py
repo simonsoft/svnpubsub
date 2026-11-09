@@ -59,7 +59,6 @@ class Job(BackgroundJob):
     def run(self):
         queue = None
         cloudid = None
-        commit = copy.deepcopy(self.commit)
         global CLOUDID, SQS_QUEUES, SQS_MESSAGE_GROUP_ID, SQS_MESSAGE_ATTRIBUTES
         if isinstance(CLOUDID, str):
             cloudid = CLOUDID
@@ -72,6 +71,7 @@ class Job(BackgroundJob):
             return
         sqs = boto3.resource('sqs')
         for suffix, queues in SQS_QUEUES.items():
+            commit = copy.deepcopy(self.commit)
             config = SQS_QUEUES[suffix]
             message_type = config.get('type', 'commit')
             extensions = config.get('extensions', [])
