@@ -22,3 +22,34 @@ Installation instructions:
 
    (eg svnwcsub.py, svnpubsub/client.py,
        'curl -sN http://${hostname}:2069/commits')
+
+AWS subscriber state isolation:
+
+The Step Functions subscriber previously shared its failed-path list between
+jobs. After a job exhausted its retries, the next job could send an old path
+with the new job's repository, revision and author, skipping its own paths.
+Each Job now owns its failed-path list and retry counter. The existing payload
+format, retry limit and delay are unchanged.
+
+Retry rounds also iterate a snapshot of the failed paths. Previously, removing
+successful paths from the list being iterated could skip other paths and exhaust
+the retry limit without giving every failed path a retry.
+
+The SQS subscriber previously reused one mutable commit copy across all
+destinations. Filtering one destination could remove paths needed by another,
+making delivery depend on destination order. Each destination now filters a
+fresh copy of the original commit. Extension matching, commit/item message
+formats and FIFO commit metadata are unchanged.
+
+Unit tests:
+
+Use Python 3.10 or 3.11 with boto3 installed. The existing subscriber client
+imports asyncore/asynchat, which are unavailable in Python 3.12 and later.
+
+    python -m unittest discover -p '*test.py' -v
+
+The AWS subscriber tests replace SDK clients with mocks and require no AWS
+credentials or service access. They cover cross-job failure isolation, retries
+of eight failed paths without resending an initially successful path,
+all six orders of three SQS destinations, empty filter results and FIFO commit
+metadata, including the original commit contents and author/revision fields.
