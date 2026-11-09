@@ -1,5 +1,9 @@
+import json
 import unittest
-from svnsfnsub import encode
+from unittest.mock import patch
+from botocore.exceptions import ClientError
+from svnpubsub.client import Commit
+from svnsfnsub import Job, encode
 
 
 class SvnSfnSubTestCase(unittest.TestCase):
@@ -41,6 +45,81 @@ class SvnSfnSubTestCase(unittest.TestCase):
         ])
         result = encode(path)
         self.assertEquals(result, expected)
+
+
+class SvnSfnSubJobTestCase(unittest.TestCase):
+
+    def setUp(self):
+        config = patch.multiple('svnsfnsub', CLOUDID='test', ACCOUNT='123456789012', DOMAIN='example.invalid')
+        config.start()
+        self.addCleanup(config.stop)
+        sdk = patch('svnsfnsub.boto3')
+        boto3 = sdk.start()
+        self.addCleanup(sdk.stop)
+        boto3.session.Session.return_value.region_name = 'eu-west-1'
+        self.start_execution = boto3.client.return_value.start_execution
+        self.start_execution.return_value = {'executionArn': 'test-execution'}
+        delay = patch('svnsfnsub.sleep')
+        self.sleep = delay.start()
+        self.addCleanup(delay.stop)
+        self.error = ClientError({'Error': {'Code': 'ThrottlingException', 'Message': 'Test failure'}}, 'StartExecution')
+
+    def test_failed_paths_do_not_leak_into_the_next_job(self):
+        first = Job(Commit({'repositoryname': 'alpha', 'id': 7, 'committer': 'alice',
+                            'changed': {'old.xml': {'flags': 'U  '}}}))
+        self.start_execution.side_effect = self.error
+        with self.assertLogs(level='WARNING'):
+            first.run()
+
+        self.assertEqual(self.start_execution.call_count, 4)
+        self.assertEqual(self.sleep.call_count, 3)
+        self.assertEqual(first.failed, ['old.xml'])
+        self.assertEqual(first.retrying, 3)
+        for call in self.start_execution.call_args_list:
+            self.assertEqual(json.loads(call.kwargs['input']), {
+                'action': 'item-event', 'userid': 'alice',
+                'itemid': 'x-svn://test.example.invalid/svn/alpha/old.xml?p=7'
+            })
+
+        self.start_execution.reset_mock()
+        self.start_execution.side_effect = None
+        second = Job(Commit({'repositoryname': 'beta', 'id': 9, 'committer': 'bob',
+                             'changed': {'new.xml': {'flags': 'A  '}}}))
+        second.run()
+
+        self.start_execution.assert_called_once()
+        self.assertEqual(self.start_execution.call_args.kwargs['stateMachineArn'],
+                         'arn:aws:states:eu-west-1:123456789012:stateMachine:cms-test-event-v1')
+        self.assertEqual(json.loads(self.start_execution.call_args.kwargs['input']), {
+            'action': 'item-event', 'userid': 'bob',
+            'itemid': 'x-svn://test.example.invalid/svn/beta/new.xml?p=9'
+        })
+        self.assertEqual(first.failed, ['old.xml'])
+        self.assertEqual(second.failed, [])
+        self.assertEqual(second.retrying, 0)
+
+    def test_retries_only_failed_paths(self):
+        # Eight failures expose skipped paths even after all three retry rounds.
+        retry_paths = ['retry-{}.xml'.format(i) for i in range(8)]
+        changed = {'ok.xml': {'flags': 'U  '}}
+        changed.update({path: {'flags': 'A  '} for path in retry_paths})
+        job = Job(Commit({'repositoryname': 'alpha', 'id': 7, 'committer': 'alice',
+                          'changed': changed}))
+        self.start_execution.side_effect = ([{'executionArn': 'ok'}]
+                                            + [self.error] * len(retry_paths)
+                                            + [{'executionArn': 'retry'}] * len(retry_paths))
+        with self.assertLogs(level='WARNING'):
+            job.run()
+
+        self.assertEqual(job.failed, [])
+        payloads = [json.loads(call.kwargs['input']) for call in self.start_execution.call_args_list]
+        self.assertEqual(payloads, [
+            {'action': 'item-event', 'userid': 'alice',
+             'itemid': 'x-svn://test.example.invalid/svn/alpha/{}?p=7'.format(path)}
+            for path in ['ok.xml'] + retry_paths + retry_paths
+        ])
+        self.assertEqual(job.retrying, 1)
+        self.sleep.assert_called_once_with(30)
 
 
 if __name__ == '__main__':

@@ -51,11 +51,10 @@ RETRIES = 3
 
 class Job(BackgroundJob):
 
-    failed = []
-    retrying = 0
-
     def __init__(self, commit: Commit):
         super().__init__(repo=commit.repositoryname, rev=commit.id, head=commit.id, commit=commit)
+        self.failed = []
+        self.retrying = 0
 
     def validate(self) -> bool:
         return True
@@ -88,7 +87,7 @@ class Job(BackgroundJob):
         session = boto3.session.Session()
         # determine region, works when AWS_DEFAULT_REGION is set or configured in ~/.aws/config
         region = session.region_name
-        items = self.failed if self.failed else self.commit.changed
+        items = self.failed.copy() if self.failed else self.commit.changed
         for item in items:
             name = "cms-{}-event-v1".format(cloudid)
             state_machine_arn = "arn:aws:states:{}:{}:stateMachine:{}".format(region, ACCOUNT, name)
