@@ -59,23 +59,13 @@ s3client = boto3.client('s3')
 
 class Job(bgworker.BackgroundJob):
 
-    def __init__(self, commit: Commit = None, shard_size: str = 'shard0', repo: str = None, rev: int = None, head: int = None):
-        if commit is not None:
-            super().__init__(repo=commit.repositoryname,
-                             rev=commit.id,
-                             head=commit.id,
-                             commit=commit,
-                             shard_size=shard_size,
-                             env={'LANG': 'en_US.UTF-8', 'LC_ALL': 'en_US.UTF-8'})
-        elif repo is not None:
-            super().__init__(repo=repo,
-                             rev=rev,
-                             head=head,
-                             commit=None,
-                             shard_size=shard_size,
-                             env={'LANG': 'en_US.UTF-8', 'LC_ALL': 'en_US.UTF-8'})
-        else:
-            raise Exception('No commit or repo specified')
+    def __init__(self, repo: str, rev: int, head: int, commit: Commit = None, shard_size: str = 'shard0'):
+        super().__init__(repo=repo,
+                         rev=rev,
+                         head=head,
+                         commit=commit,
+                         shard_size=shard_size,
+                         env={'LANG': 'en_US.UTF-8', 'LC_ALL': 'en_US.UTF-8'})
 
 
     def _get_key(self, rev):
@@ -171,7 +161,7 @@ class HistoryDumpJob(Job):
     Processing one repo as specified in the history option.
     """
     def __init__(self, repo, shard_size=None):
-        super().__init__(shard_size=shard_size, repo=repo, head=self._get_head(repo))
+        super().__init__(repo=repo, rev=None, head=self._get_head(repo), shard_size=shard_size)
         if shard_size is None:
             pass
         elif shard_size == 'shard3':
@@ -354,15 +344,15 @@ class Task(DaemonTask):
 
     def commit(self, url: str, commit: Commit):
         try:
-            job = Job(commit)
+            job = Job(repo=commit.repositoryname, rev=commit.id, head=commit.id, commit=commit)
             self.worker.queue(job)
         except Exception:
-            logging.exception('Failed to queue a job for r%s in: %s.', job.rev, job.repo)
+            logging.exception('Failed to queue a job for r%s in: %s.', commit.id, commit.repositoryname)
 
 
 def main():
     global AWS, SVNADMIN, SVNROOT, BUCKET, CLOUDID, SVNLOOK, SVN
-    parser = argparse.ArgumentParser(description='An SvnPubSub client to keep working copies synchronized with a repository.', usage='Usage: %prog [options] CONFIG_FILE')
+    parser = argparse.ArgumentParser(description='An SvnPubSub client to keep working copies synchronized with a repository.', usage='%(prog)s [options]')
 
     parser.add_argument('--logfile', help='filename for logging')
     parser.add_argument('--pidfile', help="the process' PID will be written to this file")

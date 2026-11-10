@@ -35,7 +35,8 @@ class BackgroundWorker(Thread):
                 elif self.recursive:
                     logging.info('Rev - 1 has not been processed, adding it to the queue')
                     self.queue(job)
-                    self.queue(type(job)(job.repo, job.rev - 1, job.head))
+                    # Recursive jobs must accept the BackgroundJob (repo, rev, head) constructor arguments.
+                    self.queue(type(job)(repo=job.repo, rev=job.rev - 1, head=job.head))
                 self.q.task_done()
             except Exception:
                 logging.exception('Exception in background worker.')
