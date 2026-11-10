@@ -4,6 +4,9 @@ from threading import Thread
 from queue import PriorityQueue
 
 BACKLOG_TOO_HIGH = 500
+# How many times a recursive worker requeues a job whose predecessor is missing.
+# A job is requeued once in normal operation; further requeues mean the predecessor failed.
+MAX_REQUEUES = 3
 
 
 class BackgroundWorker(Thread):
@@ -33,13 +36,23 @@ class BackgroundWorker(Thread):
                 if prev_exists:
                     job.run()
                 elif self.recursive:
-                    logging.info('Rev - 1 has not been processed, adding it to the queue')
-                    self.queue(job)
-                    # Recursive jobs must accept the BackgroundJob (repo, rev, head) constructor arguments.
-                    self.queue(type(job)(repo=job.repo, rev=job.rev - 1, head=job.head))
-                self.q.task_done()
+                    if job.requeues >= MAX_REQUEUES:
+                        # The predecessor keeps failing; drop the job instead of spinning on it.
+                        # The next commit in the repository will retry the missing revisions.
+                        logging.error('Giving up on r%s in: %s, r%s is still missing after %d attempts',
+                                      job.rev, job.repo, job.rev - 1, job.requeues)
+                    else:
+                        logging.info('Rev - 1 has not been processed, adding it to the queue')
+                        # Recursive jobs must accept the BackgroundJob (repo, rev, head) constructor arguments.
+                        # Build the predecessor first so a failure cannot leave the job requeued on its own.
+                        previous = type(job)(repo=job.repo, rev=job.rev - 1, head=job.head)
+                        job.requeues += 1
+                        self.queue(job)
+                        self.queue(previous)
             except Exception:
                 logging.exception('Exception in background worker.')
+            finally:
+                self.q.task_done()
 
     def queue(self, job):
         # Start the thread when work first arrives. Thread-start needs to
@@ -62,6 +75,7 @@ class BackgroundJob(object):
         self.repo = repo
         self.rev = rev
         self.head = head
+        self.requeues = 0
         # Set the kwargs as class attributes
         for key, value in kwargs.items():
             setattr(self, key, value)

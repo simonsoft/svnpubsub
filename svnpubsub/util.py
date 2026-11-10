@@ -16,7 +16,6 @@
 #
 
 import os
-import sys
 import logging
 import subprocess as __subprocess
 
@@ -40,27 +39,27 @@ except AttributeError:
 
 
 def execute(*args, text=True):
-    stdout = []
-    stderr = []
-    process = None
+    """Run a command and return (process, stdout, stderr).
+
+    stdout and stderr are str (lines right-stripped, joined with os.linesep) when text is True,
+    otherwise bytes. Raises RuntimeError with the command's stderr when it exits with a non-zero code.
+    """
     arguments = [*args]
 
     logging.debug("Running: %s", " ".join(arguments))
 
-    try:
-        process = __subprocess.Popen(arguments, text=text, universal_newlines=text,
-                                     stdout=__subprocess.PIPE, stderr=__subprocess.PIPE)
-        if text:
-            for line in process.stdout.readlines():
-                stdout.append(line.rstrip())
-            for line in process.stderr.readlines():
-                stderr.append(line.rstrip())
-            logging.debug(os.linesep.join(stdout))
-        if process.returncode:
-            raise __subprocess.CalledProcessError(process.returncode, process.args, process.stdout, process.stderr)
-    except Exception:
-        _, value, traceback = sys.exc_info()
-        if not text:
-            stderr.extend(line.decode('utf-8').rstrip() for line in process.stderr.readlines())
-        raise RuntimeError(os.linesep.join(stderr)).with_traceback(traceback)
-    return process, os.linesep.join(stdout) if text else process.stdout.read(), os.linesep.join(stderr) if text else process.stderr.read()
+    process = __subprocess.Popen(arguments, text=text, stdout=__subprocess.PIPE, stderr=__subprocess.PIPE)
+    # communicate() waits for the process (so returncode is set) and drains both pipes concurrently.
+    stdout, stderr = process.communicate()
+
+    if text:
+        stdout = os.linesep.join(line.rstrip() for line in stdout.splitlines())
+        stderr = os.linesep.join(line.rstrip() for line in stderr.splitlines())
+        logging.debug(stdout)
+
+    if process.returncode:
+        message = stderr if text else stderr.decode('utf-8', errors='replace').rstrip()
+        error = __subprocess.CalledProcessError(process.returncode, process.args, stdout, stderr)
+        raise RuntimeError(message or str(error)) from error
+
+    return process, stdout, stderr
