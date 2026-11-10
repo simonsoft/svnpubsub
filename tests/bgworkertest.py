@@ -49,10 +49,16 @@ class BackgroundWorkerTest(unittest.TestCase):
         heapq falls through to compare Job instances when rev is equal,
         which fails unless a tiebreaker is in the tuple."""
         worker = BackgroundWorker()
+        # Keep the thread from starting, otherwise it may take job1 off the queue
+        # before job2 is added and heapq never has to compare the two entries.
+        worker.started = True
         job1 = ConcreteJob(repo='repo-a', rev=1, head=1)
         job2 = ConcreteJob(repo='repo-b', rev=1, head=1)
         worker.queue(job1)
         worker.queue(job2)  # would raise TypeError before the fix
+        self.assertEqual(worker.q.qsize(), 2)
+        queued = [entry[-1] for entry in worker.q.queue]
+        self.assertCountEqual(queued, [job1, job2])
 
     def test_recursive_worker_queues_missing_predecessors(self):
         """When rev - 1 is missing, the recursive worker must queue the predecessor
