@@ -5,6 +5,23 @@ from queue import PriorityQueue
 BACKLOG_TOO_HIGH = 500
 
 
+class BackgroundJob(object):
+
+    def __init__(self, repo, rev, head, **kwargs):
+        self.repo = repo
+        self.rev = rev
+        self.head = head
+        # Set the kwargs as class attributes
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+    def validate(self) -> bool:
+        raise NotImplementedError("The child class must supply its own implementation!")
+
+    def run(self):
+        raise NotImplementedError("The child class must supply its own implementation!")
+
+
 class BackgroundWorker(Thread):
 
     def __init__(self, recursive=False, **kwargs):
@@ -38,7 +55,7 @@ class BackgroundWorker(Thread):
             except Exception:
                 logging.exception('Exception in background worker.')
 
-    def queue(self, job):
+    def queue(self, job: BackgroundJob):
         # Start the thread when work first arrives. Thread-start needs to
         # be delayed in case the process forks itself to become a daemon.
         if not self.started:
@@ -50,21 +67,4 @@ class BackgroundWorker(Thread):
     def __validate(self, job):
         logging.info("Validating r%s in: %s" % (job.rev, job.repo))
         return job.validate()
-
-
-class BackgroundJob(object):
-
-    def __init__(self, repo, rev, head, **kwargs):
-        self.repo = repo
-        self.rev = rev
-        self.head = head
-        # Set the kwargs as class attributes
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-    def validate(self) -> bool:
-        raise NotImplementedError("The child class must supply its own implementation!")
-
-    def run(self):
-        raise NotImplementedError("The child class must supply its own implementation!")
 
