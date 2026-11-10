@@ -48,6 +48,7 @@ SVNROOT = None
 CLOUDID = None
 SVNLOOK = None
 SVNADMIN = None
+GZIP = '/bin/gzip'
 
 HOST = "127.0.0.1"
 PORT = 2069
@@ -134,27 +135,43 @@ class Job(bgworker.BackgroundJob):
     def dump_zip_upload(self, dump_args, rev):
         shard_key = self._get_key(rev)
 
-        gz = '/bin/gzip'
-        gz_args = [gz]
-
         # Svn admin dump
         p1 = subprocess.Popen(dump_args, stdout=subprocess.PIPE, env=self.env)
         # Zip stdout
-        p2 = subprocess.Popen(gz_args, stdin=p1.stdout, stdout=subprocess.PIPE)
+        p2 = subprocess.Popen([GZIP], stdin=p1.stdout, stdout=subprocess.PIPE)
         p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
-        # Upload zip.stdout to s3
-        s3client.upload_fileobj(p2.stdout, BUCKET, shard_key)
-        #TODO: Do we need to close stuff?
-        p2.communicate()[0]
-        p1.poll()
+        try:
+            # Upload zip.stdout to s3
+            s3client.upload_fileobj(p2.stdout, BUCKET, shard_key)
+        except Exception:
+            # Don't leave the processes blocked on a pipe nobody reads any more.
+            p1.kill()
+            p2.kill()
+            p1.wait()
+            p2.wait()
+            raise
+        finally:
+            p2.stdout.close()
+        # wait() rather than poll(): the dump may still be exiting after gzip has finished.
+        p2.wait()
+        p1.wait()
 
-        if p1.returncode != 0:
-            logging.error('Dumping shard failed (rc=%s): %s', p1.returncode, shard_key)
-            raise Exception('Dumping shard failed')
-
-        if p2.returncode != 0:
+        if p1.returncode != 0 or p2.returncode != 0:
+            # The upload has already stored whatever was streamed before the failure. Remove it,
+            # otherwise the truncated dump counts as this revision's backup from now on.
+            self.__delete_shard(shard_key)
+            if p1.returncode != 0:
+                logging.error('Dumping shard failed (rc=%s): %s', p1.returncode, shard_key)
+                raise Exception('Dumping shard failed')
             logging.error('Compressing shard failed (rc=%s): %s', p2.returncode, shard_key)
             raise Exception('Compressing shard failed')
+
+    def __delete_shard(self, shard_key):
+        try:
+            s3client.delete_object(Bucket=BUCKET, Key=shard_key)
+            logging.info('Deleted the incomplete shard: s3://%s/%s', BUCKET, shard_key)
+        except Exception:
+            logging.exception('Failed to delete the incomplete shard: s3://%s/%s', BUCKET, shard_key)
 
 
 class HistoryDumpJob(Job):

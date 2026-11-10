@@ -42,6 +42,26 @@ class FailingPredecessorJob(BackgroundJob):
         raise RuntimeError('Dump failed')
 
 
+class UnreachableStorageJob(BackgroundJob):
+    """Every predecessor looks missing (as when every S3 request fails) and every dump fails."""
+
+    validations = 0
+
+    def validate(self):
+        UnreachableStorageJob.validations += 1
+        return self.rev == 0  # The shard boundary does not ask S3.
+
+    def run(self):
+        raise RuntimeError('Upload failed')
+
+
+def wait_until_drained(worker, timeout=10):
+    deadline = time.monotonic() + timeout
+    while worker.q.unfinished_tasks and time.monotonic() < deadline:
+        time.sleep(0.01)
+    time.sleep(0.1)  # Give a runaway loop the chance to show itself.
+
+
 class BackgroundWorkerTest(unittest.TestCase):
 
     def test_queue_two_jobs_same_rev(self):
@@ -75,13 +95,31 @@ class BackgroundWorkerTest(unittest.TestCase):
         FailingPredecessorJob.validations = 0
         worker = BackgroundWorker(recursive=True)
         worker.queue(FailingPredecessorJob(repo='repo-a', rev=2, head=2))
-        deadline = time.monotonic() + 5
-        while worker.q.unfinished_tasks and time.monotonic() < deadline:
-            time.sleep(0.01)
-        time.sleep(0.1)  # Give a runaway loop the chance to show itself.
+        wait_until_drained(worker)
         self.assertEqual(worker.q.qsize(), 0)
         # The initial attempt plus one per requeue.
         self.assertEqual(FailingPredecessorJob.validations, MAX_REQUEUES + 1)
+
+    def test_recursive_worker_work_grows_linearly_with_missing_chain(self):
+        """With every predecessor missing, each revision is retried a bounded number of times.
+        Counting requeues per job object instead let the work grow as (MAX_REQUEUES + 1) ** depth."""
+        depth = 50
+        UnreachableStorageJob.validations = 0
+        worker = BackgroundWorker(recursive=True)
+        worker.queue(UnreachableStorageJob(repo='repo-a', rev=depth, head=depth))
+        wait_until_drained(worker)
+        self.assertEqual(worker.q.unfinished_tasks, 0, 'Worker never drained the queue')
+        self.assertLessEqual(UnreachableStorageJob.validations, 2 * (MAX_REQUEUES + 1) * (depth + 1))
+        self.assertEqual(worker.requeues, {})
+
+    def test_requeue_counts_reset_when_the_queue_drains(self):
+        """After a burst of work ends, the next commit gets a fresh set of attempts."""
+        FailingPredecessorJob.validations = 0
+        worker = BackgroundWorker(recursive=True)
+        for _ in range(2):
+            worker.queue(FailingPredecessorJob(repo='repo-a', rev=2, head=2))
+            wait_until_drained(worker)
+        self.assertEqual(FailingPredecessorJob.validations, 2 * (MAX_REQUEUES + 1))
 
 
 if __name__ == '__main__':
