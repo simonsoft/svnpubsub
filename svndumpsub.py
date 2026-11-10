@@ -52,7 +52,8 @@ SVNADMIN = None
 HOST = "127.0.0.1"
 PORT = 2069
 
-EXCLUDED_REPOS = [] # ['demo', 'repo']
+# Commits in repositories whose names start with any of these prefixes are ignored.
+EXCLUDED_REPOS = ['demo', 'repo']
 
 s3client = boto3.client('s3')
 
