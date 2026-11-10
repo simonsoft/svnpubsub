@@ -353,7 +353,7 @@ class Task(DaemonTask):
 
 def main():
     global AWS, SVNADMIN, SVNROOT, BUCKET, CLOUDID, SVNLOOK, SVN
-    parser = argparse.ArgumentParser(description='An SvnPubSub client to keep working copies synchronized with a repository.', usage='%(prog)s [options]')
+    parser = argparse.ArgumentParser(description='An SvnPubSub client that dumps each commit, compresses it and uploads it to AWS S3.', usage='%(prog)s [options]')
 
     parser.add_argument('--logfile', help='filename for logging')
     parser.add_argument('--pidfile', help="the process' PID will be written to this file")
