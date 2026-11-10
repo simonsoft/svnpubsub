@@ -1,8 +1,12 @@
 import logging
+import itertools
 from threading import Thread
 from queue import PriorityQueue
 
 BACKLOG_TOO_HIGH = 500
+# How many times a recursive worker requeues a revision whose predecessor is missing, per burst of work.
+# A revision is requeued once in normal operation; further requeues mean the predecessor failed.
+MAX_REQUEUES = 3
 
 
 class BackgroundWorker(Thread):
@@ -12,15 +16,18 @@ class BackgroundWorker(Thread):
         for key, value in kwargs.items():
             setattr(self, key, value)
         self.q = PriorityQueue()
+        self._counter = itertools.count()
         # Set the kwargs as class attributes
         self.daemon = True  # The main thread/process should not wait for this thread to exit.
         self.recursive = recursive
         self.started = False
+        # Requeue counts per (repo, rev), only touched by the worker thread.
+        self.requeues = {}
 
     def run(self):
         while True:
             # This will block until something arrives
-            job: BackgroundJob = self.q.get()[1]
+            job: BackgroundJob = self.q.get()[2]
             # Warn if the queue is too long.
             # Note: The other thread might have added entries to self.q after the .get() and before the .qsize()
             qsize = self.q.qsize() + 1
@@ -31,12 +38,31 @@ class BackgroundWorker(Thread):
                 if prev_exists:
                     job.run()
                 elif self.recursive:
-                    logging.info('Rev - 1 has not been processed, adding it to the queue')
-                    self.queue(job)
-                    self.queue(type(job)(job.repo, job.rev - 1, job.head))
-                self.q.task_done()
+                    # Counted per revision rather than per job object: every requeue creates a new
+                    # predecessor job, so a per-object count would let the work grow exponentially
+                    # with the length of a chain of missing revisions (e.g. while S3 is failing).
+                    key = (job.repo, job.rev)
+                    requeues = self.requeues.get(key, 0)
+                    if requeues >= MAX_REQUEUES:
+                        # The predecessor keeps failing; drop the job instead of spinning on it.
+                        # The next commit in the repository will retry the missing revisions.
+                        logging.error('Giving up on r%s in: %s, r%s is still missing after %d attempts',
+                                      job.rev, job.repo, job.rev - 1, requeues)
+                    else:
+                        logging.info('Rev - 1 has not been processed, adding it to the queue')
+                        # Recursive jobs must accept the BackgroundJob (repo, rev, head) constructor arguments.
+                        # Build the predecessor first so a failure cannot leave the job requeued on its own.
+                        previous = type(job)(repo=job.repo, rev=job.rev - 1, head=job.head)
+                        self.requeues[key] = requeues + 1
+                        self.queue(job)
+                        self.queue(previous)
             except Exception:
                 logging.exception('Exception in background worker.')
+            finally:
+                self.q.task_done()
+                if self.q.empty():
+                    # The burst of work is over; the next commit gets a fresh set of attempts.
+                    self.requeues.clear()
 
     def queue(self, job):
         # Start the thread when work first arrives. Thread-start needs to
@@ -44,8 +70,9 @@ class BackgroundWorker(Thread):
         if not self.started:
             self.start()
             self.started = True
-        # Add the new job to the queue
-        self.q.put((job.rev, job))
+        # Counter breaks ties when two jobs share the same rev, preventing
+        # heapq from falling through to compare Job instances (which have no ordering).
+        self.q.put((job.rev, next(self._counter), job))
 
     def __validate(self, job):
         logging.info("Validating r%s in: %s" % (job.rev, job.repo))
