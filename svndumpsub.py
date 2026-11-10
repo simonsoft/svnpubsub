@@ -135,43 +135,32 @@ class Job(bgworker.BackgroundJob):
     def dump_zip_upload(self, dump_args, rev):
         shard_key = self._get_key(rev)
 
-        # Svn admin dump
-        p1 = subprocess.Popen(dump_args, stdout=subprocess.PIPE, env=self.env)
-        # Zip stdout
-        p2 = subprocess.Popen([GZIP], stdin=p1.stdout, stdout=subprocess.PIPE)
-        p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
-        try:
-            # Upload zip.stdout to s3
-            s3client.upload_fileobj(p2.stdout, BUCKET, shard_key)
-        except Exception:
-            # Don't leave the processes blocked on a pipe nobody reads any more.
-            p1.kill()
-            p2.kill()
-            p1.wait()
+        # Compress into a local temporary file and upload it only once the dump has succeeded.
+        # Streaming straight to S3 stored a truncated dump whenever svnadmin failed part-way,
+        # and the role is not allowed to delete backups, so a bad object could not be removed.
+        # TemporaryFile has no name on disk, so it disappears even if the process is killed.
+        with tempfile.TemporaryFile(prefix='%s_%s_' % (self.repo, rev), suffix='.svndump.gz') as gz:
+            # Svn admin dump
+            p1 = subprocess.Popen(dump_args, stdout=subprocess.PIPE, env=self.env)
+            # Zip stdout
+            p2 = subprocess.Popen([GZIP], stdin=p1.stdout, stdout=gz)
+            p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
+            # wait() rather than poll(): the dump may still be exiting after gzip has finished.
             p2.wait()
-            raise
-        finally:
-            p2.stdout.close()
-        # wait() rather than poll(): the dump may still be exiting after gzip has finished.
-        p2.wait()
-        p1.wait()
+            p1.wait()
 
-        if p1.returncode != 0 or p2.returncode != 0:
-            # The upload has already stored whatever was streamed before the failure. Remove it,
-            # otherwise the truncated dump counts as this revision's backup from now on.
-            self.__delete_shard(shard_key)
+            # Check gzip first: when it fails (e.g. the disk is full), svnadmin then dies of SIGPIPE,
+            # which would otherwise be reported as the cause. A failed dump leaves gzip exiting cleanly.
+            if p2.returncode != 0:
+                logging.error('Compressing shard failed (rc=%s): %s', p2.returncode, shard_key)
+                raise Exception('Compressing shard failed')
+
             if p1.returncode != 0:
                 logging.error('Dumping shard failed (rc=%s): %s', p1.returncode, shard_key)
                 raise Exception('Dumping shard failed')
-            logging.error('Compressing shard failed (rc=%s): %s', p2.returncode, shard_key)
-            raise Exception('Compressing shard failed')
 
-    def __delete_shard(self, shard_key):
-        try:
-            s3client.delete_object(Bucket=BUCKET, Key=shard_key)
-            logging.info('Deleted the incomplete shard: s3://%s/%s', BUCKET, shard_key)
-        except Exception:
-            logging.exception('Failed to delete the incomplete shard: s3://%s/%s', BUCKET, shard_key)
+            gz.seek(0)
+            s3client.upload_fileobj(gz, BUCKET, shard_key)
 
 
 class HistoryDumpJob(Job):
