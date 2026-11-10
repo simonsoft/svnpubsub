@@ -110,6 +110,9 @@ if __name__ == "__main__":
     from_rev = int(args.from_rev)
     to_rev = int(args.to_rev or svnlook_youngest(repo))
 
+    if from_rev < 1:
+        parser.error("--from-rev must be greater than or equal to 1")
+
     if from_rev > to_rev:
         parser.error("--from-rev must be less than or equal to --to-rev")
 
